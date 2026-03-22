@@ -10,7 +10,6 @@ import (
 	"github.com/jesseduffield/gocui"
 	"github.com/matsest/lazyazure/pkg/azure"
 	"github.com/matsest/lazyazure/pkg/domain"
-	"github.com/matsest/lazyazure/pkg/gui/panels"
 	"github.com/matsest/lazyazure/pkg/tasks"
 	"github.com/matsest/lazyazure/pkg/utils"
 )
@@ -23,22 +22,27 @@ type Gui struct {
 	rgClient    *azure.ResourceGroupsClient
 	taskManager *tasks.TaskManager
 
-	// Views
-	sideView   *gocui.View
+	// Views - Left sidebar (stacked panels)
+	authView           *gocui.View
+	subscriptionsView  *gocui.View
+	resourceGroupsView *gocui.View
+
+	// Views - Right panel and status
 	mainView   *gocui.View
 	statusView *gocui.View
 
-	// Navigation state
-	viewMode    string // "subscriptions" or "resourcegroups"
+	// Selection state
 	selectedSub *domain.Subscription
 	selectedRG  *domain.ResourceGroup
 
 	// Data
 	subscriptions  []*domain.Subscription
 	resourceGroups []*domain.ResourceGroup
+	currentUser    *domain.User
 
 	// UI state
-	tabIndex int // 0 = summary, 1 = json
+	tabIndex    int    // 0 = summary, 1 = json
+	activePanel string // "subscriptions" or "resourcegroups"
 
 	mu sync.RWMutex
 }
@@ -49,7 +53,7 @@ func NewGui(azureClient *azure.Client) (*Gui, error) {
 		azureClient: azureClient,
 		taskManager: tasks.NewTaskManager(),
 		tabIndex:    0,
-		viewMode:    "subscriptions",
+		activePanel: "subscriptions",
 	}, nil
 }
 
@@ -71,8 +75,7 @@ func (gui *Gui) Run() error {
 
 	// Set up initial layout
 	utils.Log("Gui.Run: Setting up views...")
-	maxX, maxY := g.Size()
-	if err := gui.setupViews(maxX, maxY); err != nil {
+	if err := gui.setupViews(); err != nil {
 		utils.Log("Gui.Run: ERROR setting up views: %v", err)
 		return err
 	}
@@ -98,6 +101,7 @@ func (gui *Gui) Run() error {
 
 	// Load initial data
 	utils.Log("Gui.Run: Loading initial data...")
+	gui.loadUserInfo()
 	gui.loadSubscriptions()
 
 	// Start the main loop
@@ -105,60 +109,94 @@ func (gui *Gui) Run() error {
 	return g.MainLoop()
 }
 
-func (gui *Gui) setupViews(maxX, maxY int) error {
-	// Ensure minimum dimensions
-	if maxX < 30 || maxY < 10 {
-		return fmt.Errorf("terminal too small: need at least 30x10, got %dx%d", maxX, maxY)
+func (gui *Gui) setupViews() error {
+	maxX, maxY := gui.g.Size()
+
+	// Left sidebar width (33% of screen)
+	sidebarWidth := maxX / 3
+	if sidebarWidth < 30 {
+		sidebarWidth = 30
 	}
 
-	sideWidth := maxX / 3
-	if sideWidth < 10 {
-		sideWidth = 10
+	// Right panel starts after sidebar
+	rightX0 := sidebarWidth
+
+	// Calculate heights for stacked panels
+	// Auth: 3 lines, Subscriptions: 35%, Resource Groups: remaining
+	authHeight := 3
+	remainingHeight := maxY - authHeight - 2 // -2 for status bar
+	subHeight := remainingHeight * 40 / 100  // 40% of remaining
+	rgHeight := remainingHeight - subHeight  // rest goes to RG
+
+	// Status bar at bottom
+	statusY := maxY - 2
+
+	// 1. Auth panel (top, small)
+	if v, err := gui.g.SetView("auth", 0, 0, sidebarWidth-1, authHeight, 0); err != nil {
+		if !gocui.IsUnknownView(err) {
+			return err
+		}
+		v.Title = " Auth "
+		v.Wrap = true
+		gui.authView = v
 	}
 
-	// Side panel (left) - shows list
-	if v, err := gui.g.SetView("side", 0, 0, sideWidth-1, maxY-2, 0); err != nil && !gocui.IsUnknownView(err) {
-		return err
-	} else {
+	// 2. Subscriptions panel (middle)
+	subY0 := authHeight + 1
+	subY1 := subY0 + subHeight
+	if v, err := gui.g.SetView("subscriptions", 0, subY0, sidebarWidth-1, subY1, 0); err != nil {
+		if !gocui.IsUnknownView(err) {
+			return err
+		}
 		v.Title = " Subscriptions "
 		v.Highlight = true
 		v.SelBgColor = gocui.ColorBlue
 		v.SelFgColor = gocui.ColorWhite
-		gui.sideView = v
+		gui.subscriptionsView = v
+		// Set as current view initially
+		gui.g.SetCurrentView("subscriptions")
 	}
 
-	// Main panel (right) - shows details
-	if v, err := gui.g.SetView("main", sideWidth, 0, maxX-1, maxY-2, 0); err != nil && !gocui.IsUnknownView(err) {
-		return err
-	} else {
+	// 3. Resource Groups panel (bottom)
+	rgY0 := subY1 + 1
+	rgY1 := rgY0 + rgHeight
+	if v, err := gui.g.SetView("resourcegroups", 0, rgY0, sidebarWidth-1, rgY1, 0); err != nil {
+		if !gocui.IsUnknownView(err) {
+			return err
+		}
+		v.Title = " Resource Groups "
+		v.Highlight = true
+		v.SelBgColor = gocui.ColorBlue
+		v.SelFgColor = gocui.ColorWhite
+		gui.resourceGroupsView = v
+	}
+
+	// 4. Main panel (right side)
+	if v, err := gui.g.SetView("main", rightX0, 0, maxX-1, statusY, 0); err != nil {
+		if !gocui.IsUnknownView(err) {
+			return err
+		}
 		v.Title = " Details "
 		v.Wrap = true
 		gui.mainView = v
 	}
 
-	// Status bar (bottom) - at least 2 rows
-	statusY := maxY - 2
-	if statusY < 0 {
-		statusY = 0
-	}
-	if v, err := gui.g.SetView("status", 0, statusY, maxX-1, maxY, 0); err != nil && !gocui.IsUnknownView(err) {
-		return err
-	} else {
+	// 5. Status bar (bottom)
+	if v, err := gui.g.SetView("status", 0, statusY, maxX-1, maxY, 0); err != nil {
+		if !gocui.IsUnknownView(err) {
+			return err
+		}
 		v.BgColor = gocui.ColorDefault
 		v.FgColor = gocui.ColorWhite
 		v.Frame = false
 		gui.statusView = v
 	}
 
-	// Set initial focus if no view is currently focused
-	if gui.g.CurrentView() == nil && gui.sideView != nil {
-		if _, err := gui.g.SetCurrentView("side"); err != nil {
-			return err
-		}
-	}
-
+	gui.updatePanelTitles()
 	gui.updateStatus()
-	gui.refreshSidePanel()
+	gui.refreshAuthPanel()
+	gui.refreshSubscriptionsPanel()
+	gui.refreshResourceGroupsPanel()
 	gui.refreshMainPanel()
 
 	return nil
@@ -167,66 +205,71 @@ func (gui *Gui) setupViews(maxX, maxY int) error {
 func (gui *Gui) setupKeybindings() error {
 	utils.Log("setupKeybindings: Setting up keybindings...")
 
-	// Quit - bind to ALL views including side, main, and status
-	quitKeys := []struct {
-		view string
-		key  interface{}
-	}{
-		{"", gocui.KeyCtrlC},
-		{"side", gocui.KeyCtrlC},
-		{"main", gocui.KeyCtrlC},
-		{"status", gocui.KeyCtrlC},
-		{"", 'q'},
-		{"side", 'q'},
-	}
-
-	for _, binding := range quitKeys {
-		if err := gui.g.SetKeybinding(binding.view, binding.key, gocui.ModNone, gui.quit); err != nil {
-			utils.Log("setupKeybindings: ERROR setting quit binding for %s: %v", binding.view, err)
+	// Global quit
+	quitKeys := []string{"", "subscriptions", "resourcegroups", "main"}
+	for _, view := range quitKeys {
+		if err := gui.g.SetKeybinding(view, gocui.KeyCtrlC, gocui.ModNone, gui.quit); err != nil {
+			return err
+		}
+		if err := gui.g.SetKeybinding(view, 'q', gocui.ModNone, gui.quit); err != nil {
 			return err
 		}
 	}
 	utils.Log("setupKeybindings: Quit keybindings set")
 
-	// Navigation - Arrow keys (only on side view)
-	utils.Log("setupKeybindings: Setting up navigation keys...")
-	if err := gui.g.SetKeybinding("side", gocui.KeyArrowDown, gocui.ModNone, gui.nextLine); err != nil {
+	// Subscriptions panel navigation
+	if err := gui.g.SetKeybinding("subscriptions", gocui.KeyArrowDown, gocui.ModNone, gui.nextSub); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("side", gocui.KeyArrowUp, gocui.ModNone, gui.prevLine); err != nil {
+	if err := gui.g.SetKeybinding("subscriptions", gocui.KeyArrowUp, gocui.ModNone, gui.prevSub); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("side", 'j', gocui.ModNone, gui.nextLine); err != nil {
+	if err := gui.g.SetKeybinding("subscriptions", 'j', gocui.ModNone, gui.nextSub); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("side", 'k', gocui.ModNone, gui.prevLine); err != nil {
+	if err := gui.g.SetKeybinding("subscriptions", 'k', gocui.ModNone, gui.prevSub); err != nil {
 		return err
 	}
+	if err := gui.g.SetKeybinding("subscriptions", gocui.KeyEnter, gocui.ModNone, gui.onSubEnter); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: Subscriptions navigation set")
 
-	// Drill down and back navigation
-	utils.Log("setupKeybindings: Setting up Enter/Esc keys...")
-	if err := gui.g.SetKeybinding("side", gocui.KeyEnter, gocui.ModNone, gui.enterPressed); err != nil {
+	// Resource Groups panel navigation
+	if err := gui.g.SetKeybinding("resourcegroups", gocui.KeyArrowDown, gocui.ModNone, gui.nextRG); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("side", gocui.KeyEsc, gocui.ModNone, gui.goBack); err != nil {
+	if err := gui.g.SetKeybinding("resourcegroups", gocui.KeyArrowUp, gocui.ModNone, gui.prevRG); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("side", 'h', gocui.ModNone, gui.goBack); err != nil {
+	if err := gui.g.SetKeybinding("resourcegroups", 'j', gocui.ModNone, gui.nextRG); err != nil {
 		return err
 	}
+	if err := gui.g.SetKeybinding("resourcegroups", 'k', gocui.ModNone, gui.prevRG); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resourcegroups", gocui.KeyEnter, gocui.ModNone, gui.onRGEnter); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: Resource groups navigation set")
 
-	// Tab switching - global
-	utils.Log("setupKeybindings: Setting up tab keys...")
+	// Tab switching (global)
 	if err := gui.g.SetKeybinding("", '[', gocui.ModNone, gui.prevTab); err != nil {
 		return err
 	}
 	if err := gui.g.SetKeybinding("", ']', gocui.ModNone, gui.nextTab); err != nil {
 		return err
 	}
+	utils.Log("setupKeybindings: Tab keys set")
 
-	// Refresh
-	utils.Log("setupKeybindings: Setting up refresh key...")
+	// Refresh (global)
 	if err := gui.g.SetKeybinding("", 'r', gocui.ModNone, gui.refresh); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: Refresh key set")
+
+	// Panel switching with Tab key
+	if err := gui.g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, gui.switchPanel); err != nil {
 		return err
 	}
 
@@ -241,250 +284,308 @@ func (gui *Gui) quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.ErrQuit
 }
 
-func (gui *Gui) nextLine(g *gocui.Gui, v *gocui.View) error {
-	cx, cy := v.Cursor()
+func (gui *Gui) loadUserInfo() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	// Read state without holding lock during select calls
+		user, err := gui.azureClient.GetUserInfo(ctx)
+		if err != nil {
+			utils.Log("loadUserInfo: Error: %v", err)
+			return
+		}
+
+		gui.mu.Lock()
+		gui.currentUser = user
+		gui.mu.Unlock()
+
+		gui.g.UpdateAsync(func(g *gocui.Gui) error {
+			gui.refreshAuthPanel()
+			return nil
+		})
+	}()
+}
+
+func (gui *Gui) refreshAuthPanel() {
+	if gui.authView == nil {
+		return
+	}
+
+	gui.authView.Clear()
 	gui.mu.RLock()
-	viewMode := gui.viewMode
+	user := gui.currentUser
+	gui.mu.RUnlock()
+
+	if user != nil {
+		fmt.Fprintf(gui.authView, "User: %s", user.Name)
+	} else {
+		fmt.Fprint(gui.authView, "Authenticating...")
+	}
+}
+
+func (gui *Gui) refreshSubscriptionsPanel() {
+	if gui.subscriptionsView == nil {
+		return
+	}
+
+	gui.subscriptionsView.Clear()
+	gui.mu.RLock()
+	subs := gui.subscriptions
+	gui.mu.RUnlock()
+
+	for _, sub := range subs {
+		fmt.Fprintln(gui.subscriptionsView, sub.DisplayString())
+	}
+}
+
+func (gui *Gui) refreshResourceGroupsPanel() {
+	if gui.resourceGroupsView == nil {
+		return
+	}
+
+	gui.resourceGroupsView.Clear()
+	gui.mu.RLock()
+	rgs := gui.resourceGroups
+	gui.mu.RUnlock()
+
+	for _, rg := range rgs {
+		fmt.Fprintln(gui.resourceGroupsView, rg.DisplayString())
+	}
+}
+
+// Placeholder implementations for the rest
+func (gui *Gui) nextSub(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
 	subCount := len(gui.subscriptions)
+	gui.mu.RUnlock()
+
+	if subCount == 0 {
+		return nil
+	}
+
+	cx, cy := v.Cursor()
+	if cy < subCount-1 {
+		v.SetCursor(cx, cy+1)
+		gui.updateSubscriptionSelection(v)
+		gui.refreshMainPanel()
+	}
+	return nil
+}
+
+func (gui *Gui) prevSub(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	subCount := len(gui.subscriptions)
+	gui.mu.RUnlock()
+
+	if subCount == 0 {
+		return nil
+	}
+
+	cx, cy := v.Cursor()
+	if cy > 0 {
+		v.SetCursor(cx, cy-1)
+		gui.updateSubscriptionSelection(v)
+		gui.refreshMainPanel()
+	}
+	return nil
+}
+
+func (gui *Gui) updateSubscriptionSelection(v *gocui.View) {
+	_, cy := v.Cursor()
+	idx := cy
+
+	gui.mu.Lock()
+	if idx >= 0 && idx < len(gui.subscriptions) {
+		gui.selectedSub = gui.subscriptions[idx]
+	}
+	gui.mu.Unlock()
+}
+
+func (gui *Gui) nextRG(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
 	rgCount := len(gui.resourceGroups)
 	gui.mu.RUnlock()
 
-	utils.Log("nextLine: cursor at (%d, %d), viewMode=%s, subCount=%d, rgCount=%d", cx, cy, viewMode, subCount, rgCount)
+	if rgCount == 0 {
+		return nil
+	}
 
-	if viewMode == "subscriptions" {
-		if cy < subCount-1 {
-			v.SetCursor(cx, cy+1)
-			gui.selectSubscription(cy + 1)
-			utils.Log("nextLine: moved to subscription %d", cy+1)
-		} else {
-			utils.Log("nextLine: already at last subscription (cy=%d, count=%d)", cy, subCount)
-		}
-	} else if viewMode == "resourcegroups" {
-		if cy < rgCount-1 {
-			v.SetCursor(cx, cy+1)
-			gui.selectResourceGroup(cy + 1)
-			utils.Log("nextLine: moved to resource group %d", cy+1)
-		} else {
-			utils.Log("nextLine: already at last resource group (cy=%d, count=%d)", cy, rgCount)
-		}
+	cx, cy := v.Cursor()
+	if cy < rgCount-1 {
+		v.SetCursor(cx, cy+1)
+		gui.updateRGSelection(v)
+		gui.refreshMainPanel()
 	}
 	return nil
 }
 
-func (gui *Gui) prevLine(g *gocui.Gui, v *gocui.View) error {
-	cx, cy := v.Cursor()
-
-	// Read state without holding lock during select calls
+func (gui *Gui) prevRG(g *gocui.Gui, v *gocui.View) error {
 	gui.mu.RLock()
-	viewMode := gui.viewMode
+	rgCount := len(gui.resourceGroups)
 	gui.mu.RUnlock()
 
-	utils.Log("prevLine: cursor at (%d, %d), viewMode=%s", cx, cy, viewMode)
+	if rgCount == 0 {
+		return nil
+	}
 
+	cx, cy := v.Cursor()
 	if cy > 0 {
 		v.SetCursor(cx, cy-1)
-		if viewMode == "subscriptions" {
-			gui.selectSubscription(cy - 1)
-			utils.Log("prevLine: moved to subscription %d", cy-1)
-		} else if viewMode == "resourcegroups" {
-			gui.selectResourceGroup(cy - 1)
-			utils.Log("prevLine: moved to resource group %d", cy-1)
-		}
-	} else {
-		utils.Log("prevLine: already at first item")
-	}
-	return nil
-}
-
-func (gui *Gui) selectResourceGroup(index int) {
-	utils.Log("selectResourceGroup: selecting index %d", index)
-	gui.mu.Lock()
-	if index >= 0 && index < len(gui.resourceGroups) {
-		gui.selectedRG = gui.resourceGroups[index]
-	}
-	gui.mu.Unlock()
-
-	// Call refresh outside the lock to avoid deadlock
-	gui.refreshMainPanel()
-	utils.Log("selectResourceGroup: selection complete")
-}
-
-func (gui *Gui) enterPressed(g *gocui.Gui, v *gocui.View) error {
-	utils.Log("enterPressed: Enter key pressed")
-	if gui.viewMode == "subscriptions" && gui.selectedSub != nil {
-		utils.Log("enterPressed: Loading resource groups for sub %s", gui.selectedSub.Name)
-		gui.loadResourceGroups(gui.selectedSub.ID)
-	} else {
-		utils.Log("enterPressed: Not in subscriptions mode or no sub selected (viewMode=%s)", gui.viewMode)
-	}
-	return nil
-}
-
-func (gui *Gui) goBack(g *gocui.Gui, v *gocui.View) error {
-	if gui.viewMode == "resourcegroups" {
-		gui.viewMode = "subscriptions"
-		gui.rgClient = nil
-		gui.resourceGroups = nil
-		gui.selectedRG = nil
-		gui.sideView.Title = " Subscriptions "
-		gui.refreshSidePanel()
+		gui.updateRGSelection(v)
 		gui.refreshMainPanel()
-		gui.updateStatus()
 	}
 	return nil
 }
 
-func (gui *Gui) selectSubscription(index int) {
-	utils.Log("selectSubscription: selecting index %d", index)
+func (gui *Gui) updateRGSelection(v *gocui.View) {
+	_, cy := v.Cursor()
+	idx := cy
+
 	gui.mu.Lock()
-	if index >= 0 && index < len(gui.subscriptions) {
-		gui.selectedSub = gui.subscriptions[index]
+	if idx >= 0 && idx < len(gui.resourceGroups) {
+		gui.selectedRG = gui.resourceGroups[idx]
+	}
+	gui.mu.Unlock()
+}
+
+func (gui *Gui) onSubEnter(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	if len(gui.subscriptions) == 0 {
+		gui.mu.Unlock()
+		return nil
+	}
+
+	_, cy := v.Cursor()
+	idx := cy
+
+	if idx >= 0 && idx < len(gui.subscriptions) {
+		gui.selectedSub = gui.subscriptions[idx]
+		subID := gui.selectedSub.ID
+		gui.mu.Unlock()
+
+		// Load resource groups for this subscription
+		gui.loadResourceGroups(subID)
+
+		// Switch focus to resource groups panel
+		gui.g.SetCurrentView("resourcegroups")
+		gui.mu.Lock()
+		gui.activePanel = "resourcegroups"
+		gui.mu.Unlock()
+		gui.updatePanelTitles() // Update the visual indicator
+		gui.updateStatus()
+	} else {
+		gui.mu.Unlock()
+	}
+	return nil
+}
+
+func (gui *Gui) onRGEnter(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	if len(gui.resourceGroups) == 0 {
+		gui.mu.Unlock()
+		return nil
+	}
+
+	_, cy := v.Cursor()
+	idx := cy
+
+	if idx >= 0 && idx < len(gui.resourceGroups) {
+		gui.selectedRG = gui.resourceGroups[idx]
 	}
 	gui.mu.Unlock()
 
-	// Call refresh outside the lock to avoid deadlock
+	// Update main panel to show RG details
 	gui.refreshMainPanel()
-	utils.Log("selectSubscription: selection complete")
+	return nil
 }
 
-func (gui *Gui) nextTab(g *gocui.Gui, v *gocui.View) error {
-	gui.tabIndex = (gui.tabIndex + 1) % 2
-	gui.refreshMainPanel()
+func (gui *Gui) switchPanel(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	currentPanel := gui.activePanel
+	gui.mu.Unlock()
+
+	var nextView string
+	if currentPanel == "subscriptions" {
+		nextView = "resourcegroups"
+	} else {
+		nextView = "subscriptions"
+	}
+
+	utils.Log("switchPanel: switching from %s to %s", currentPanel, nextView)
+
+	if _, err := gui.g.SetCurrentView(nextView); err != nil {
+		utils.Log("switchPanel: ERROR setting current view: %v", err)
+		return err
+	}
+
+	gui.mu.Lock()
+	gui.activePanel = nextView
+	gui.mu.Unlock()
+
+	// Update visual indicators
+	gui.updatePanelTitles()
+	gui.updateStatus()
+
+	utils.Log("switchPanel: switched successfully to %s", nextView)
+	return nil
+}
+
+func (gui *Gui) updatePanelTitles() {
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	// Update titles to show which panel is active
+	if gui.subscriptionsView != nil {
+		if activePanel == "subscriptions" {
+			gui.subscriptionsView.Title = " ▶ Subscriptions "
+		} else {
+			gui.subscriptionsView.Title = "   Subscriptions "
+		}
+	}
+
+	if gui.resourceGroupsView != nil {
+		if activePanel == "resourcegroups" {
+			gui.resourceGroupsView.Title = " ▶ Resource Groups "
+		} else {
+			gui.resourceGroupsView.Title = "   Resource Groups "
+		}
+	}
+}
+
+func (gui *Gui) refresh(g *gocui.Gui, v *gocui.View) error {
+	// Reload all data
+	gui.loadUserInfo()
+	gui.loadSubscriptions()
+
+	gui.mu.RLock()
+	selectedSub := gui.selectedSub
+	gui.mu.RUnlock()
+
+	if selectedSub != nil {
+		gui.loadResourceGroups(selectedSub.ID)
+	}
 	return nil
 }
 
 func (gui *Gui) prevTab(g *gocui.Gui, v *gocui.View) error {
-	gui.tabIndex = (gui.tabIndex - 1 + 2) % 2
+	gui.mu.Lock()
+	if gui.tabIndex > 0 {
+		gui.tabIndex--
+	}
+	gui.mu.Unlock()
 	gui.refreshMainPanel()
 	return nil
 }
 
-func (gui *Gui) refresh(g *gocui.Gui, v *gocui.View) error {
-	if gui.viewMode == "subscriptions" {
-		gui.loadSubscriptions()
-	} else if gui.viewMode == "resourcegroups" && gui.selectedSub != nil {
-		gui.loadResourceGroups(gui.selectedSub.ID)
+func (gui *Gui) nextTab(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	if gui.tabIndex < 1 {
+		gui.tabIndex++
 	}
+	gui.mu.Unlock()
+	gui.refreshMainPanel()
 	return nil
-}
-
-func (gui *Gui) loadSubscriptions() {
-	gui.taskManager.NewTask(func(ctx context.Context) {
-		subs, err := gui.subClient.ListSubscriptions(ctx)
-		if err != nil {
-			gui.g.UpdateAsync(func(g *gocui.Gui) error {
-				gui.updateStatusMessage(fmt.Sprintf("Error: %v", err))
-				return nil
-			})
-			return
-		}
-
-		gui.mu.Lock()
-		gui.subscriptions = subs
-		if len(subs) > 0 && gui.selectedSub == nil {
-			gui.selectedSub = subs[0]
-		}
-		gui.mu.Unlock()
-
-		// Update UI using UpdateAsync
-		gui.g.UpdateAsync(func(g *gocui.Gui) error {
-			gui.refreshSidePanel()
-			gui.refreshMainPanel()
-			gui.updateStatusMessage(fmt.Sprintf("Loaded %d subscriptions", len(subs)))
-			return nil
-		})
-	})
-}
-
-func (gui *Gui) loadResourceGroups(subscriptionID string) {
-	// Show loading indicator
-	gui.updateStatusMessage("Loading resource groups...")
-
-	// Run the actual loading in a goroutine
-	go func() {
-		utils.Log("loadResourceGroups: goroutine started")
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		utils.Log("loadResourceGroups: context created with 30s timeout")
-
-		utils.Log("loadResourceGroups: creating resource groups client...")
-		rgClient, err := azure.NewResourceGroupsClient(gui.azureClient, subscriptionID)
-		if err != nil {
-			utils.Log("loadResourceGroups: ERROR creating client: %v", err)
-			gui.g.UpdateAsync(func(g *gocui.Gui) error {
-				gui.updateStatusMessage(fmt.Sprintf("Error: %v", err))
-				return nil
-			})
-			return
-		}
-		utils.Log("loadResourceGroups: client created successfully")
-
-		utils.Log("loadResourceGroups: calling ListResourceGroups...")
-		rgs, err := rgClient.ListResourceGroups(ctx)
-		if err != nil {
-			utils.Log("loadResourceGroups: ERROR listing RGs: %v", err)
-			gui.g.UpdateAsync(func(g *gocui.Gui) error {
-				gui.updateStatusMessage(fmt.Sprintf("Error: %v", err))
-				return nil
-			})
-			return
-		}
-		utils.Log("loadResourceGroups: successfully loaded %d resource groups", len(rgs))
-
-		// Update state
-		utils.Log("loadResourceGroups: updating state...")
-		gui.mu.Lock()
-		gui.rgClient = rgClient
-		gui.resourceGroups = rgs
-		gui.viewMode = "resourcegroups"
-		if len(rgs) > 0 {
-			gui.selectedRG = rgs[0]
-		}
-		gui.mu.Unlock()
-		utils.Log("loadResourceGroups: state updated")
-
-		// Update UI - use UpdateAsync to avoid blocking
-		utils.Log("loadResourceGroups: queuing UI update...")
-		gui.g.UpdateAsync(func(g *gocui.Gui) error {
-			utils.Log("loadResourceGroups: UI update callback executing...")
-			gui.sideView.Title = " Resource Groups "
-			gui.refreshSidePanel()
-			gui.refreshMainPanel()
-			gui.updateStatusMessage(fmt.Sprintf("Loaded %d resource groups", len(rgs)))
-			gui.updateStatus()
-
-			// Set cursor after refresh
-			if len(rgs) > 0 {
-				gui.sideView.SetCursor(0, 0)
-			}
-			utils.Log("loadResourceGroups: UI update complete")
-			return nil
-		})
-		utils.Log("loadResourceGroups: goroutine finished")
-	}()
-}
-
-func (gui *Gui) refreshSidePanel() {
-	if gui.sideView == nil {
-		return
-	}
-
-	gui.sideView.Clear()
-	gui.mu.RLock()
-	defer gui.mu.RUnlock()
-
-	if gui.viewMode == "subscriptions" {
-		for _, sub := range gui.subscriptions {
-			fmt.Fprintln(gui.sideView, sub.DisplayString())
-		}
-	} else if gui.viewMode == "resourcegroups" {
-		for _, rg := range gui.resourceGroups {
-			fmt.Fprintln(gui.sideView, rg.DisplayString())
-		}
-	}
 }
 
 func (gui *Gui) refreshMainPanel() {
@@ -494,68 +595,56 @@ func (gui *Gui) refreshMainPanel() {
 
 	gui.mainView.Clear()
 	gui.mu.RLock()
-	defer gui.mu.RUnlock()
+	tabIndex := gui.tabIndex
+	selectedSub := gui.selectedSub
+	selectedRG := gui.selectedRG
+	gui.mu.RUnlock()
 
-	if gui.viewMode == "subscriptions" {
-		gui.renderSubscriptionDetails()
-	} else if gui.viewMode == "resourcegroups" {
-		gui.renderResourceGroupDetails()
-	}
-}
-
-func (gui *Gui) renderSubscriptionDetails() {
-	if gui.selectedSub == nil {
-		fmt.Fprintln(gui.mainView, "No subscription selected")
-		return
-	}
-
-	if gui.tabIndex == 0 {
-		// Summary tab
-		gui.mainView.Title = " Details [Summary] "
-		fmt.Fprintf(gui.mainView, "Name: %s\n", gui.selectedSub.Name)
-		fmt.Fprintf(gui.mainView, "ID: %s\n", gui.selectedSub.ID)
-		fmt.Fprintf(gui.mainView, "State: %s\n", gui.selectedSub.State)
-		fmt.Fprintf(gui.mainView, "Tenant ID: %s\n", gui.selectedSub.TenantID)
-	} else {
-		// JSON tab
-		gui.mainView.Title = " Details [JSON] "
-		data, err := json.MarshalIndent(gui.selectedSub, "", "  ")
-		if err != nil {
-			fmt.Fprintf(gui.mainView, "Error: %v\n", err)
-			return
-		}
-		gui.mainView.Write(data)
-	}
-}
-
-func (gui *Gui) renderResourceGroupDetails() {
-	if gui.selectedRG == nil {
-		fmt.Fprintln(gui.mainView, "No resource group selected")
-		return
-	}
-
-	if gui.tabIndex == 0 {
-		// Summary tab
-		gui.mainView.Title = " Resource Group [Summary] "
-		fmt.Fprintf(gui.mainView, "Name: %s\n", gui.selectedRG.Name)
-		fmt.Fprintf(gui.mainView, "Location: %s\n", gui.selectedRG.Location)
-		fmt.Fprintf(gui.mainView, "ID: %s\n", gui.selectedRG.ID)
-		fmt.Fprintf(gui.mainView, "Provisioning State: %s\n", gui.selectedRG.ProvisioningState)
-		if len(gui.selectedRG.Tags) > 0 {
-			fmt.Fprintln(gui.mainView, "Tags:")
-			for k, v := range gui.selectedRG.Tags {
-				fmt.Fprintf(gui.mainView, "  %s: %s\n", k, v)
+	// Determine what to display based on what's selected
+	if selectedRG != nil && gui.activePanel == "resourcegroups" {
+		// Show resource group details
+		if tabIndex == 0 {
+			// Summary tab
+			gui.mainView.Title = " Details [Summary] "
+			fmt.Fprintf(gui.mainView, "Name: %s\n", selectedRG.Name)
+			fmt.Fprintf(gui.mainView, "Location: %s\n", selectedRG.Location)
+			fmt.Fprintf(gui.mainView, "ID: %s\n", selectedRG.ID)
+			fmt.Fprintf(gui.mainView, "Provisioning State: %s\n", selectedRG.ProvisioningState)
+			if len(selectedRG.Tags) > 0 {
+				fmt.Fprintln(gui.mainView, "\nTags:")
+				for k, v := range selectedRG.Tags {
+					fmt.Fprintf(gui.mainView, "  %s: %s\n", k, v)
+				}
+			}
+		} else {
+			// JSON tab
+			gui.mainView.Title = " Details [JSON] "
+			jsonData, err := json.MarshalIndent(selectedRG, "", "  ")
+			if err != nil {
+				fmt.Fprintf(gui.mainView, "Error marshaling JSON: %v\n", err)
+			} else {
+				fmt.Fprint(gui.mainView, string(jsonData))
 			}
 		}
-	} else {
-		// JSON tab
-		gui.mainView.Title = " Resource Group [JSON] "
-		data, err := json.MarshalIndent(gui.selectedRG, "", "  ")
-		if err != nil {
-			fmt.Fprintf(gui.mainView, "Error: %v\n", err)
-			return
+	} else if selectedSub != nil {
+		// Show subscription details
+		if tabIndex == 0 {
+			// Summary tab
+			gui.mainView.Title = " Details [Summary] "
+			fmt.Fprintf(gui.mainView, "Name: %s\n", selectedSub.Name)
+			fmt.Fprintf(gui.mainView, "ID: %s\n", selectedSub.ID)
+			fmt.Fprintf(gui.mainView, "State: %s\n", selectedSub.State)
+			fmt.Fprintf(gui.mainView, "Tenant ID: %s\n", selectedSub.TenantID)
+		} else {
+			// JSON tab
+			gui.mainView.Title = " Details [JSON] "
+			jsonData, err := json.MarshalIndent(selectedSub, "", "  ")
+			if err != nil {
+				fmt.Fprintf(gui.mainView, "Error marshaling JSON: %v\n", err)
+			} else {
+				fmt.Fprint(gui.mainView, string(jsonData))
+			}
 		}
-		gui.mainView.Write(data)
 	}
 }
 
@@ -566,40 +655,87 @@ func (gui *Gui) updateStatus() {
 
 	gui.statusView.Clear()
 	gui.mu.RLock()
-	defer gui.mu.RUnlock()
+	activePanel := gui.activePanel
+	subCount := len(gui.subscriptions)
+	rgCount := len(gui.resourceGroups)
+	gui.mu.RUnlock()
 
-	if gui.viewMode == "subscriptions" {
-		if gui.selectedSub != nil {
-			fmt.Fprintf(gui.statusView, " Sub: %s | Enter to view RGs | Tab: %s | q:quit, r:refresh",
-				gui.selectedSub.Name, gui.getTabName())
-		} else {
-			fmt.Fprint(gui.statusView, " q:quit, r:refresh")
-		}
-	} else if gui.viewMode == "resourcegroups" {
-		if gui.selectedRG != nil {
-			fmt.Fprintf(gui.statusView, " RG: %s | Esc/h:back | Tab: %s | q:quit, r:refresh",
-				gui.selectedRG.Name, gui.getTabName())
-		} else {
-			fmt.Fprint(gui.statusView, " Esc/h:back to subs | q:quit, r:refresh")
-		}
+	var status string
+	if activePanel == "subscriptions" {
+		status = fmt.Sprintf("↑↓: Navigate | Enter: Load RGs | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subCount)
+	} else {
+		status = fmt.Sprintf("↑↓: Navigate | Enter: View Details | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgCount)
 	}
+	fmt.Fprint(gui.statusView, status)
 }
 
-func (gui *Gui) updateStatusMessage(msg string) {
-	if gui.statusView == nil {
+func (gui *Gui) loadSubscriptions() {
+	gui.mu.RLock()
+	subClient := gui.subClient
+	gui.mu.RUnlock()
+
+	if subClient == nil {
 		return
 	}
 
-	gui.statusView.Clear()
-	fmt.Fprint(gui.statusView, msg)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		subs, err := subClient.ListSubscriptions(ctx)
+		if err != nil {
+			utils.Log("loadSubscriptions: Error: %v", err)
+			return
+		}
+
+		gui.mu.Lock()
+		gui.subscriptions = subs
+		if len(subs) > 0 && gui.selectedSub == nil {
+			gui.selectedSub = subs[0]
+		}
+		gui.mu.Unlock()
+
+		gui.g.UpdateAsync(func(g *gocui.Gui) error {
+			gui.refreshSubscriptionsPanel()
+			gui.refreshMainPanel()
+			gui.updateStatus()
+			return nil
+		})
+	}()
 }
 
-func (gui *Gui) getTabName() string {
-	if gui.tabIndex == 0 {
-		return "Summary"
-	}
-	return "JSON"
-}
+func (gui *Gui) loadResourceGroups(subscriptionID string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
-// Ensure FilteredList is used
-var _ = panels.NewFilteredList[string]
+		rgClient, err := azure.NewResourceGroupsClient(gui.azureClient, subscriptionID)
+		if err != nil {
+			utils.Log("loadResourceGroups: Error creating client: %v", err)
+			return
+		}
+
+		rgs, err := rgClient.ListResourceGroups(ctx)
+		if err != nil {
+			utils.Log("loadResourceGroups: Error listing RGs: %v", err)
+			return
+		}
+
+		gui.mu.Lock()
+		gui.resourceGroups = rgs
+		gui.rgClient = rgClient
+		if len(rgs) > 0 {
+			gui.selectedRG = rgs[0]
+		} else {
+			gui.selectedRG = nil
+		}
+		gui.mu.Unlock()
+
+		gui.g.UpdateAsync(func(g *gocui.Gui) error {
+			gui.refreshResourceGroupsPanel()
+			gui.refreshMainPanel()
+			gui.updateStatus()
+			return nil
+		})
+	}()
+}
