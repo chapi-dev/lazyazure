@@ -191,6 +191,7 @@ pkg/
 
 ### 10. Code Style
 
+- **Formatting**: Code must pass `gofmt -l .` (no output means properly formatted)
 - **Logging**: Use `utils.Log()` liberally during development (disabled by default)
 - **Error handling**: Return errors up the call stack, handle at boundaries
 - **Naming**: Use camelCase for unexported, CamelCase for exported
@@ -202,6 +203,7 @@ Before finishing a session:
 
 - [ ] Code builds without errors: `go build .`
 - [ ] Tests pass: `go test ./pkg/...`
+- [ ] Code is properly formatted: `gofmt -l .` returns empty
 - [ ] Debug logging is properly guarded with `LAZYAZURE_DEBUG` check
 - [ ] No mutex deadlocks introduced (verify lock patterns)
 - [ ] Documentation updated if needed (README.md, this file)
