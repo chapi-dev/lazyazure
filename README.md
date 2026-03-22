@@ -2,41 +2,18 @@
 
 A TUI application for Azure resource management, inspired by lazydocker. Browse Azure subscriptions, resource groups, and resources with an interactive terminal interface.
 
-> **About This Project**: This project was vibe-coded with [OpenCode](https://opencode.ai) (AI pair programming). It is provided as-is without warranties. See [AGENTS.md](AGENTS.md) for development guidelines and lessons learned.
+> **About This Project**: This project is vibe-coded with [OpenCode](https://opencode.ai) (AI pair programming). It is provided as-is without warranties. See [AGENTS.md](AGENTS.md) for development guidelines.
 
 ## Features
 
-### Phase 1 & 2 Complete ✓
+- Browse Azure subscriptions and resource groups
+- View resource details in Summary or JSON format  
+- Interactive terminal interface with keyboard-driven navigation
+- Stackable panels showing subscriptions and resource groups simultaneously
+- Visual focus indicators for easy navigation
+- Clean, focused UI inspired by lazydocker
 
-- **Azure CLI Authentication** - Seamless integration via DefaultAzureCredential
-- **Subscription Browser** - View all accessible subscriptions with name and ID
-- **Resource Group Explorer** - Navigate resource groups within subscriptions
-- **Stacked Panel Layout** - All panels visible simultaneously (inspired by lazydocker)
-  - Auth panel (shows current user)
-  - Subscriptions panel (40% of sidebar)
-  - Resource Groups panel (remaining space)
-- **Interactive Details** - View details in Summary or JSON format
-- **Visual Focus Indicator** - ▶ arrow shows which panel is active
-
-### Layout
-
-```
-┌─────────────────────┬──────────────────────────────────┐
-│ Auth                │                                  │
-│ User: Authenticated │  Details [Summary] [JSON]        │
-├─────────────────────┤                                  │
-│ ▶ Subscriptions     │  Name: Production Sub             │
-│ • Sub A             │  ID: abc-123-456                 │
-│ • Sub B  [selected] │  State: Enabled                  │
-│ • Sub C             │  Tenant ID: xyz-789              │
-├─────────────────────┤                                  │
-│   Resource Groups   │                                  │
-│ • RG-1              │                                  │
-│ • RG-2  [selected] │                                  │
-│ • RG-3              │                                  │
-└─────────────────────┴──────────────────────────────────┘
- ↑↓ Navigate | Enter: Load/View | Tab: Switch | [] Tabs | q: Quit
-```
+See `PLAN.md` for implementation details and roadmap.
 
 ## Usage
 
