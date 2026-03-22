@@ -61,3 +61,44 @@ func TestVerifyAuthenticationTimeout(t *testing.T) {
 		t.Fatal("VerifyAuthentication hung for more than 2 seconds")
 	}
 }
+
+func TestGetUserInfo(t *testing.T) {
+	client, err := NewClient()
+	if err != nil {
+		t.Skipf("Could not create client: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	user, err := client.GetUserInfo(ctx)
+	if err != nil {
+		t.Skipf("Could not get user info (expected if not logged in): %v", err)
+	}
+
+	if user == nil {
+		t.Fatal("GetUserInfo returned nil user")
+	}
+
+	// Verify fields are populated (don't log sensitive values)
+	if user.Type == "" {
+		t.Error("User type is empty")
+	}
+
+	if user.UserPrincipalName == "" {
+		t.Error("User principal name is empty")
+	}
+
+	if user.TenantID == "" {
+		t.Error("Tenant ID is empty")
+	}
+
+	// Display name should be populated (may be same as UPN for some users)
+	if user.DisplayName == "" {
+		t.Error("Display name is empty")
+	}
+
+	// Log non-sensitive info only
+	t.Logf("User info retrieved successfully - Type: %q, HasDisplayName: %v",
+		user.Type, user.DisplayName != "")
+}

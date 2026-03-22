@@ -2,7 +2,9 @@ package azure
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os/exec"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -37,12 +39,9 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
-// GetUserInfo retrieves information about the currently authenticated user
+// GetUserInfo retrieves information about the currently authenticated user using Azure CLI
 func (c *Client) GetUserInfo(ctx context.Context) (*domain.User, error) {
-	// For MVP, we'll use a simple approach - get a token and extract claims
-	// In production, you might want to use Microsoft Graph API
-
-	// Try to get token to verify authentication works
+	// First verify we can get a token
 	_, err := c.credential.GetToken(ctx, policy.TokenRequestOptions{
 		Scopes: []string{"https://management.azure.com/.default"},
 	})
@@ -50,13 +49,55 @@ func (c *Client) GetUserInfo(ctx context.Context) (*domain.User, error) {
 		return nil, fmt.Errorf("failed to authenticate - ensure you're logged in with 'az login': %w", err)
 	}
 
-	// For now, return a placeholder - we can enhance this later
-	// In a real implementation, we'd decode the JWT token or call Graph API
-	return &domain.User{
-		Name:     "Authenticated User",
-		Email:    "",
-		TenantID: "",
-	}, nil
+	// Use az account show to get user information
+	cmd := exec.CommandContext(ctx, "az", "account", "show", "-o", "json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account info from Azure CLI: %w", err)
+	}
+
+	var accountInfo struct {
+		User struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"user"`
+		TenantID string `json:"tenantId"`
+	}
+
+	if err := json.Unmarshal(output, &accountInfo); err != nil {
+		return nil, fmt.Errorf("failed to parse account info: %w", err)
+	}
+
+	user := &domain.User{
+		TenantID: accountInfo.TenantID,
+	}
+
+	// Map Azure CLI user type to our format
+	switch accountInfo.User.Type {
+	case "servicePrincipal":
+		user.Type = "serviceprincipal"
+		user.UserPrincipalName = accountInfo.User.Name // For SPs, this is the appId
+		user.DisplayName = accountInfo.User.Name       // For SPs, use appId as display name
+	default:
+		user.Type = "user"
+		user.UserPrincipalName = accountInfo.User.Name // For users, this is the UPN/email
+
+		// Try to get display name from Microsoft Graph via Azure CLI
+		// This may fail if user doesn't have Graph permissions, so we fall back to UPN
+		user.DisplayName = user.UserPrincipalName
+		cmd2 := exec.CommandContext(ctx, "az", "ad", "signed-in-user", "show", "-o", "json")
+		output2, err := cmd2.Output()
+		if err == nil {
+			var userInfo struct {
+				DisplayName string `json:"displayName"`
+			}
+			if err := json.Unmarshal(output2, &userInfo); err == nil && userInfo.DisplayName != "" {
+				user.DisplayName = userInfo.DisplayName
+			}
+		}
+	}
+
+	return user, nil
 }
 
 // VerifyAuthentication checks if the client can authenticate

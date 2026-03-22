@@ -122,8 +122,8 @@ func (gui *Gui) setupViews() error {
 	rightX0 := sidebarWidth
 
 	// Calculate heights for stacked panels
-	// Auth: 3 lines, Subscriptions: 35%, Resource Groups: remaining
-	authHeight := 3
+	// Auth: 5 lines (for 3 lines of content + title), Subscriptions: 35%, Resource Groups: remaining
+	authHeight := 5
 	remainingHeight := maxY - authHeight - 2 // -2 for status bar
 	subHeight := remainingHeight * 40 / 100  // 40% of remaining
 	rgHeight := remainingHeight - subHeight  // rest goes to RG
@@ -317,7 +317,10 @@ func (gui *Gui) refreshAuthPanel() {
 	gui.mu.RUnlock()
 
 	if user != nil {
-		fmt.Fprintf(gui.authView, "User: %s", user.Name)
+		// Display user information
+		fmt.Fprintf(gui.authView, "Name:  %s\n", user.DisplayName)
+		fmt.Fprintf(gui.authView, "UPN:   %s\n", user.UserPrincipalName)
+		fmt.Fprintf(gui.authView, "Type:  %s", user.Type)
 	} else {
 		fmt.Fprint(gui.authView, "Authenticating...")
 	}
