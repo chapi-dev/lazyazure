@@ -13,19 +13,15 @@ import (
 )
 
 func main() {
-	// Immediate stderr output for debugging
-	fmt.Fprintln(os.Stderr, "=== LazyAzure starting ===")
-
-	// Initialize logger first
-	fmt.Fprintln(os.Stderr, "Initializing logger...")
-	if err := utils.InitLogger(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
-		os.Exit(1)
+	// Initialize logger if LAZYAZURE_DEBUG is set
+	if utils.IsDebugEnabled() {
+		if err := utils.InitLogger(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+			os.Exit(1)
+		}
+		defer utils.CloseLogger()
+		utils.Log("Starting LazyAzure with debug logging enabled...")
 	}
-	defer utils.CloseLogger()
-	fmt.Fprintln(os.Stderr, "Logger initialized successfully")
-
-	utils.Log("Starting LazyAzure...")
 
 	// Create Azure client
 	client, err := azure.NewClient()

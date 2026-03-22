@@ -12,10 +12,20 @@ var (
 	logFile  *os.File
 	logMutex sync.Mutex
 	logPath  string
+	enabled  bool
 )
 
-// InitLogger initializes the debug logger
+// IsDebugEnabled returns true if debug logging is enabled
+func IsDebugEnabled() bool {
+	return os.Getenv("LAZYAZURE_DEBUG") != ""
+}
+
+// InitLogger initializes the debug logger if LAZYAZURE_DEBUG is set
 func InitLogger() error {
+	if !IsDebugEnabled() {
+		return nil
+	}
+
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
@@ -38,6 +48,7 @@ func InitLogger() error {
 	}
 
 	logFile = f
+	enabled = true
 
 	// Write initial log entries directly (don't use Log() since we hold the mutex)
 	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
@@ -48,12 +59,12 @@ func InitLogger() error {
 	return nil
 }
 
-// Log writes a log message with timestamp
+// Log writes a log message with timestamp (no-op if debug logging is disabled)
 func Log(format string, args ...interface{}) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 
-	if logFile == nil {
+	if !enabled || logFile == nil {
 		return
 	}
 
@@ -75,9 +86,13 @@ func CloseLogger() {
 		logFile.Close()
 		logFile = nil
 	}
+	enabled = false
 }
 
-// GetLogPath returns the current log file path
+// GetLogPath returns the current log file path (empty if logging disabled)
 func GetLogPath() string {
+	if !enabled {
+		return ""
+	}
 	return logPath
 }
