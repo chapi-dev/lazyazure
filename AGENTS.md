@@ -135,6 +135,14 @@ az login  # Optional - only one of many auth methods
 
 ### 6. Testing
 
+**CRITICAL: Always add or update tests when making changes.**
+
+When implementing features or fixes:
+- **New domain models?** Add JSON serialization tests in `pkg/domain/`
+- **New Azure client methods?** Add client tests in `pkg/azure/`
+- **New GUI features?** Add tests in `pkg/gui/` (or at minimum, test manually)
+- **Bug fixes?** Add a test that would have caught the bug
+
 Run tests frequently:
 ```bash
 go test ./pkg/...
@@ -144,6 +152,7 @@ Key test files:
 - `pkg/tasks/tasks_test.go` - Task manager tests
 - `pkg/azure/client_test.go` - Azure client tests
 - `pkg/gui/gui_test.go` - GUI tests
+- `pkg/domain/domain_test.go` - Domain model tests (JSON tags, helpers)
 
 ### 7. Common Issues and Fixes
 
