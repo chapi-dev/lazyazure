@@ -149,13 +149,21 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
    - Theme customization
    - Default subscription preference
 
-5. **Error Handling**
+5. **Visual Polish** ✅ (Partially Complete)
+   - ✅ Color-coded keys in Summary view (green)
+   - ✅ JSON syntax highlighting with Chroma
+   - ✅ Bold text for list indicators
+   - ✅ Green border for focused panel
+   - ✅ Sorted tags and properties
+
+6. **Error Handling**
    - Graceful handling of auth failures
    - Retry logic for API calls
    - Status bar messages
 
-6. **Performance**
-   - Lazy loading (fetch on demand)
+7. **Performance**
+   - ✅ Lazy loading (fetch on demand) - Already implemented
+   - API version caching for resource providers
    - Pagination for large resource lists
    - Background refresh
 
@@ -179,12 +187,14 @@ lazyazure/
 │   │   ├── subscriptions.go     # Subscription operations
 │   │   ├── resourcegroups.go    # Resource group operations
 │   │   ├── resourcegroups_test.go # RG tests
-│   │   └── resources.go         # Generic resource operations (NEW!)
+│   │   ├── resources.go         # Generic resource operations
+│   │   └── api_versions.go      # Dynamic API version lookup
 │   ├── domain/
 │   │   ├── user.go              # User domain model
 │   │   ├── subscription.go      # Subscription domain model
 │   │   ├── resourcegroup.go     # ResourceGroup domain model
-│   │   └── resource.go          # Generic Resource domain model (NEW!)
+│   │   ├── resource.go          # Generic Resource domain model
+│   │   └── domain_test.go       # Domain model tests
 │   ├── gui/
 │   │   ├── gui.go               # Main GUI controller with all TUI logic
 │   │   ├── gui_test.go          # GUI tests
@@ -220,3 +230,12 @@ lazyazure/
 - [x] Clean exit with `q` or `Ctrl+C`
 - [x] Navigate to resource groups within subscriptions
 - [x] View resource group details (name, location, provisioning state, tags)
+
+## Phase 3 Success Criteria
+
+- [x] Browse resources within resource groups
+- [x] View full resource details with provider-specific properties
+- [x] Dynamic API version lookup for resource types
+- [x] Color-coded UI with syntax highlighting
+- [x] Scrollable content in details panel
+- [x] Sorted and formatted display of tags and properties
