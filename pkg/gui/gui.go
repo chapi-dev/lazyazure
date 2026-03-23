@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
@@ -915,17 +916,17 @@ func (gui *Gui) nextTab(g *gocui.Gui, v *gocui.View) error {
 
 // ANSI color codes
 const (
-	colorCyan  = "\x1b[36m"
-	colorWhite = "\x1b[37m"
-	colorReset = "\x1b[0m"
+	colorBoldCyan = "\x1b[1;36m" // Bold cyan for keys
+	colorWhite    = "\x1b[37m"   // White for values
+	colorReset    = "\x1b[0m"    // Reset
 )
 
-// printKeyValue prints a key-value pair with cyan key and white value
+// printKeyValue prints a key-value pair with bold cyan key and white value
 func printKeyValue(view *gocui.View, key string, value string) {
-	fmt.Fprintf(view, "%s%s:%s %s\n", colorCyan, key, colorReset, value)
+	fmt.Fprintf(view, "%s%s:%s %s\n", colorBoldCyan, key, colorReset, value)
 }
 
-// highlightJSON uses Chroma to syntax highlight JSON output
+// highlightJSON uses Chroma to syntax highlight JSON output with consistent colors
 func highlightJSON(jsonData string) string {
 	// Use the JSON lexer
 	lexer := lexers.Get("json")
@@ -933,11 +934,17 @@ func highlightJSON(jsonData string) string {
 		lexer = lexers.Fallback
 	}
 
-	// Use the monokai theme (good for dark terminals)
-	style := styles.Get("monokai")
-	if style == nil {
-		style = styles.Fallback
-	}
+	// Create a custom style matching our Summary view (cyan keys, consistent formatting)
+	customStyle := styles.Register(chroma.MustNewStyle("lazyazure", chroma.StyleEntries{
+		chroma.NameTag:       "bold #00FFFF", // Bold cyan for object keys (matching Summary view)
+		chroma.NameAttribute: "bold #00FFFF", // Bold cyan for attributes
+		chroma.String:        "#E6DB74",      // Yellow for strings
+		chroma.Number:        "#AE81FF",      // Purple for numbers
+		chroma.Keyword:       "#66D9EF",      // Light blue for true/false/null
+		chroma.Comment:       "#75715E",      // Gray for comments
+		chroma.Operator:      "#F8F8F2",      // White for operators (: , { })
+		chroma.Punctuation:   "#F8F8F2",      // White for punctuation
+	}))
 
 	// Use the terminal formatter
 	formatter := formatters.Get("terminal")
@@ -952,7 +959,7 @@ func highlightJSON(jsonData string) string {
 	}
 
 	var buf bytes.Buffer
-	err = formatter.Format(&buf, style, iterator)
+	err = formatter.Format(&buf, customStyle, iterator)
 	if err != nil {
 		return jsonData // Return unformatted on error
 	}
