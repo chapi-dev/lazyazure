@@ -94,27 +94,30 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
 
 ---
 
-## Phase 3: Resources & Deep Viewing
+## Phase 3: Resources & Deep Viewing ✅ COMPLETE
 
 **Goal:** Full hierarchy: Subscriptions → Resource Groups → Resources
 
-### Implementation Steps:
+### Implementation Summary:
 
-1. **Azure Client**
-   - Add `resources.go`: List resources with type, name, location
-   - Generic resource client using `armresources.NewClient()`
+1. **Azure Client** ✅
+   - Added `resources.go`: List resources within resource groups using filter
+   - Uses `armresources.NewClient()` with resource group filter
 
-2. **Domain Models**
-   - `resource.go`: Generic Azure resource (ID, Name, Type, Location, Tags)
+2. **Domain Models** ✅
+   - Added `resource.go`: Generic Azure resource (ID, Name, Type, Location, Tags, Properties)
 
-3. **Updated Panels**
-   - `resources_panel.go`: List resources in selected resource group
-   - Context switching between all three levels
+3. **Updated Panels** ✅
+   - Added resources panel to stacked layout
+   - Redistributed panel heights for 4-panel layout (auth, subs, RGs, resources)
+   - Context switching between all three levels with Tab key
+   - Enter key drills down: Subscriptions → RGs → Resources
 
-4. **Enhanced Viewer**
-   - Full JSON representation of any selected resource
+4. **Enhanced Viewer** ✅
+   - Main panel shows appropriate details for selected item type
+   - Resource details include: Name, Type, Location, ID, Resource Group, Tags
+   - JSON representation for all resource types
    - Summary view with formatted key fields
-   - Tag display
 
 ---
 
@@ -175,11 +178,13 @@ lazyazure/
 │   │   ├── client_test.go       # Azure client tests
 │   │   ├── subscriptions.go     # Subscription operations
 │   │   ├── resourcegroups.go    # Resource group operations
-│   │   └── resourcegroups_test.go # RG tests
+│   │   ├── resourcegroups_test.go # RG tests
+│   │   └── resources.go         # Generic resource operations (NEW!)
 │   ├── domain/
 │   │   ├── user.go              # User domain model
 │   │   ├── subscription.go      # Subscription domain model
-│   │   └── resourcegroup.go     # ResourceGroup domain model
+│   │   ├── resourcegroup.go     # ResourceGroup domain model
+│   │   └── resource.go          # Generic Resource domain model (NEW!)
 │   ├── gui/
 │   │   ├── gui.go               # Main GUI controller with all TUI logic
 │   │   ├── gui_test.go          # GUI tests

@@ -20,12 +20,14 @@ type Gui struct {
 	azureClient *azure.Client
 	subClient   *azure.SubscriptionsClient
 	rgClient    *azure.ResourceGroupsClient
+	resClient   *azure.ResourcesClient
 	taskManager *tasks.TaskManager
 
 	// Views - Left sidebar (stacked panels)
 	authView           *gocui.View
 	subscriptionsView  *gocui.View
 	resourceGroupsView *gocui.View
+	resourcesView      *gocui.View
 
 	// Views - Right panel and status
 	mainView   *gocui.View
@@ -34,15 +36,17 @@ type Gui struct {
 	// Selection state
 	selectedSub *domain.Subscription
 	selectedRG  *domain.ResourceGroup
+	selectedRes *domain.Resource
 
 	// Data
 	subscriptions  []*domain.Subscription
 	resourceGroups []*domain.ResourceGroup
+	resources      []*domain.Resource
 	currentUser    *domain.User
 
 	// UI state
 	tabIndex    int    // 0 = summary, 1 = json
-	activePanel string // "subscriptions" or "resourcegroups"
+	activePanel string // "subscriptions", "resourcegroups", or "resources"
 
 	mu sync.RWMutex
 }
@@ -122,11 +126,11 @@ func (gui *Gui) setupViews() error {
 	rightX0 := sidebarWidth
 
 	// Calculate heights for stacked panels
-	// Auth: 5 lines (for 3 lines of content + title), Subscriptions: 35%, Resource Groups: remaining
+	// Auth: 5 lines, then distribute remaining among subscriptions, RGs, and resources
 	authHeight := 5
 	remainingHeight := maxY - authHeight - 2 // -2 for status bar
-	subHeight := remainingHeight * 40 / 100  // 40% of remaining
-	rgHeight := remainingHeight - subHeight  // rest goes to RG
+	// Divide remaining space among 3 panels (subscriptions, RGs, resources)
+	panelHeight := remainingHeight / 3
 
 	// Status bar at bottom
 	statusY := maxY - 2
@@ -141,9 +145,9 @@ func (gui *Gui) setupViews() error {
 		gui.authView = v
 	}
 
-	// 2. Subscriptions panel (middle)
+	// 2. Subscriptions panel
 	subY0 := authHeight + 1
-	subY1 := subY0 + subHeight
+	subY1 := subY0 + panelHeight
 	if v, err := gui.g.SetView("subscriptions", 0, subY0, sidebarWidth-1, subY1, 0); err != nil {
 		if !gocui.IsUnknownView(err) {
 			return err
@@ -157,9 +161,9 @@ func (gui *Gui) setupViews() error {
 		gui.g.SetCurrentView("subscriptions")
 	}
 
-	// 3. Resource Groups panel (bottom)
+	// 3. Resource Groups panel
 	rgY0 := subY1 + 1
-	rgY1 := rgY0 + rgHeight
+	rgY1 := rgY0 + panelHeight
 	if v, err := gui.g.SetView("resourcegroups", 0, rgY0, sidebarWidth-1, rgY1, 0); err != nil {
 		if !gocui.IsUnknownView(err) {
 			return err
@@ -171,7 +175,25 @@ func (gui *Gui) setupViews() error {
 		gui.resourceGroupsView = v
 	}
 
-	// 4. Main panel (right side)
+	// 4. Resources panel (new!)
+	resY0 := rgY1 + 1
+	resY1 := resY0 + panelHeight
+	// If there's extra space due to integer division, give it to resources
+	if resY1 < statusY-1 {
+		resY1 = statusY - 1
+	}
+	if v, err := gui.g.SetView("resources", 0, resY0, sidebarWidth-1, resY1, 0); err != nil {
+		if !gocui.IsUnknownView(err) {
+			return err
+		}
+		v.Title = " Resources "
+		v.Highlight = true
+		v.SelBgColor = gocui.ColorBlue
+		v.SelFgColor = gocui.ColorWhite
+		gui.resourcesView = v
+	}
+
+	// 5. Main panel (right side)
 	if v, err := gui.g.SetView("main", rightX0, 0, maxX-1, statusY, 0); err != nil {
 		if !gocui.IsUnknownView(err) {
 			return err
@@ -181,7 +203,7 @@ func (gui *Gui) setupViews() error {
 		gui.mainView = v
 	}
 
-	// 5. Status bar (bottom)
+	// 6. Status bar (bottom)
 	if v, err := gui.g.SetView("status", 0, statusY, maxX-1, maxY, 0); err != nil {
 		if !gocui.IsUnknownView(err) {
 			return err
@@ -197,6 +219,7 @@ func (gui *Gui) setupViews() error {
 	gui.refreshAuthPanel()
 	gui.refreshSubscriptionsPanel()
 	gui.refreshResourceGroupsPanel()
+	gui.refreshResourcesPanel()
 	gui.refreshMainPanel()
 
 	return nil
@@ -206,7 +229,7 @@ func (gui *Gui) setupKeybindings() error {
 	utils.Log("setupKeybindings: Setting up keybindings...")
 
 	// Global quit
-	quitKeys := []string{"", "subscriptions", "resourcegroups", "main"}
+	quitKeys := []string{"", "subscriptions", "resourcegroups", "resources", "main"}
 	for _, view := range quitKeys {
 		if err := gui.g.SetKeybinding(view, gocui.KeyCtrlC, gocui.ModNone, gui.quit); err != nil {
 			return err
@@ -253,6 +276,24 @@ func (gui *Gui) setupKeybindings() error {
 	}
 	utils.Log("setupKeybindings: Resource groups navigation set")
 
+	// Resources panel navigation
+	if err := gui.g.SetKeybinding("resources", gocui.KeyArrowDown, gocui.ModNone, gui.nextRes); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resources", gocui.KeyArrowUp, gocui.ModNone, gui.prevRes); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resources", 'j', gocui.ModNone, gui.nextRes); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resources", 'k', gocui.ModNone, gui.prevRes); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resources", gocui.KeyEnter, gocui.ModNone, gui.onResEnter); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: Resources navigation set")
+
 	// Tab switching (global)
 	if err := gui.g.SetKeybinding("", '[', gocui.ModNone, gui.prevTab); err != nil {
 		return err
@@ -270,6 +311,10 @@ func (gui *Gui) setupKeybindings() error {
 
 	// Panel switching with Tab key
 	if err := gui.g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, gui.switchPanel); err != nil {
+		return err
+	}
+	// Panel switching with Shift+Tab (reverse direction) - uses KeyBacktab
+	if err := gui.g.SetKeybinding("", gocui.KeyBacktab, gocui.ModNone, gui.switchPanelReverse); err != nil {
 		return err
 	}
 
@@ -357,6 +402,21 @@ func (gui *Gui) refreshResourceGroupsPanel() {
 
 	for _, rg := range rgs {
 		fmt.Fprintln(gui.resourceGroupsView, rg.DisplayString())
+	}
+}
+
+func (gui *Gui) refreshResourcesPanel() {
+	if gui.resourcesView == nil {
+		return
+	}
+
+	gui.resourcesView.Clear()
+	gui.mu.RLock()
+	resources := gui.resources
+	gui.mu.RUnlock()
+
+	for _, res := range resources {
+		fmt.Fprintln(gui.resourcesView, res.DisplayString())
 	}
 }
 
@@ -455,6 +515,53 @@ func (gui *Gui) updateRGSelection(v *gocui.View) {
 	gui.mu.Unlock()
 }
 
+func (gui *Gui) nextRes(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	resCount := len(gui.resources)
+	gui.mu.RUnlock()
+
+	if resCount == 0 {
+		return nil
+	}
+
+	cx, cy := v.Cursor()
+	if cy < resCount-1 {
+		v.SetCursor(cx, cy+1)
+		gui.updateResSelection(v)
+		gui.refreshMainPanel()
+	}
+	return nil
+}
+
+func (gui *Gui) prevRes(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	resCount := len(gui.resources)
+	gui.mu.RUnlock()
+
+	if resCount == 0 {
+		return nil
+	}
+
+	cx, cy := v.Cursor()
+	if cy > 0 {
+		v.SetCursor(cx, cy-1)
+		gui.updateResSelection(v)
+		gui.refreshMainPanel()
+	}
+	return nil
+}
+
+func (gui *Gui) updateResSelection(v *gocui.View) {
+	_, cy := v.Cursor()
+	idx := cy
+
+	gui.mu.Lock()
+	if idx >= 0 && idx < len(gui.resources) {
+		gui.selectedRes = gui.resources[idx]
+	}
+	gui.mu.Unlock()
+}
+
 func (gui *Gui) onSubEnter(g *gocui.Gui, v *gocui.View) error {
 	gui.mu.Lock()
 	if len(gui.subscriptions) == 0 {
@@ -478,7 +585,7 @@ func (gui *Gui) onSubEnter(g *gocui.Gui, v *gocui.View) error {
 		gui.mu.Lock()
 		gui.activePanel = "resourcegroups"
 		gui.mu.Unlock()
-		gui.updatePanelTitles() // Update the visual indicator
+		gui.updatePanelTitles()
 		gui.updateStatus()
 	} else {
 		gui.mu.Unlock()
@@ -498,11 +605,47 @@ func (gui *Gui) onRGEnter(g *gocui.Gui, v *gocui.View) error {
 
 	if idx >= 0 && idx < len(gui.resourceGroups) {
 		gui.selectedRG = gui.resourceGroups[idx]
-	}
-	gui.mu.Unlock()
+		rgName := gui.selectedRG.Name
+		subID := gui.selectedSub.ID
+		gui.mu.Unlock()
 
-	// Update main panel to show RG details
-	gui.refreshMainPanel()
+		// Load resources for this resource group
+		gui.loadResources(subID, rgName)
+
+		// Switch focus to resources panel
+		gui.g.SetCurrentView("resources")
+		gui.mu.Lock()
+		gui.activePanel = "resources"
+		gui.mu.Unlock()
+		gui.updatePanelTitles()
+		gui.updateStatus()
+	} else {
+		gui.mu.Unlock()
+	}
+	return nil
+}
+
+func (gui *Gui) onResEnter(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	if len(gui.resources) == 0 {
+		gui.mu.Unlock()
+		return nil
+	}
+
+	_, cy := v.Cursor()
+	idx := cy
+
+	if idx >= 0 && idx < len(gui.resources) {
+		selectedRes := gui.resources[idx]
+		gui.mu.Unlock()
+
+		// Load full resource details with provider-specific properties
+		// Pass the original resource to preserve createdTime/changedTime
+		gui.loadResourceDetails(selectedRes)
+	} else {
+		gui.mu.Unlock()
+	}
+
 	return nil
 }
 
@@ -512,9 +655,14 @@ func (gui *Gui) switchPanel(g *gocui.Gui, v *gocui.View) error {
 	gui.mu.Unlock()
 
 	var nextView string
-	if currentPanel == "subscriptions" {
+	switch currentPanel {
+	case "subscriptions":
 		nextView = "resourcegroups"
-	} else {
+	case "resourcegroups":
+		nextView = "resources"
+	case "resources":
+		nextView = "subscriptions"
+	default:
 		nextView = "subscriptions"
 	}
 
@@ -534,6 +682,42 @@ func (gui *Gui) switchPanel(g *gocui.Gui, v *gocui.View) error {
 	gui.updateStatus()
 
 	utils.Log("switchPanel: switched successfully to %s", nextView)
+	return nil
+}
+
+func (gui *Gui) switchPanelReverse(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	currentPanel := gui.activePanel
+	gui.mu.Unlock()
+
+	var nextView string
+	switch currentPanel {
+	case "subscriptions":
+		nextView = "resources"
+	case "resources":
+		nextView = "resourcegroups"
+	case "resourcegroups":
+		nextView = "subscriptions"
+	default:
+		nextView = "subscriptions"
+	}
+
+	utils.Log("switchPanelReverse: switching from %s to %s", currentPanel, nextView)
+
+	if _, err := gui.g.SetCurrentView(nextView); err != nil {
+		utils.Log("switchPanelReverse: ERROR setting current view: %v", err)
+		return err
+	}
+
+	gui.mu.Lock()
+	gui.activePanel = nextView
+	gui.mu.Unlock()
+
+	// Update visual indicators
+	gui.updatePanelTitles()
+	gui.updateStatus()
+
+	utils.Log("switchPanelReverse: switched successfully to %s", nextView)
 	return nil
 }
 
@@ -558,6 +742,14 @@ func (gui *Gui) updatePanelTitles() {
 			gui.resourceGroupsView.Title = "   Resource Groups "
 		}
 	}
+
+	if gui.resourcesView != nil {
+		if activePanel == "resources" {
+			gui.resourcesView.Title = " ▶ Resources "
+		} else {
+			gui.resourcesView.Title = "   Resources "
+		}
+	}
 }
 
 func (gui *Gui) refresh(g *gocui.Gui, v *gocui.View) error {
@@ -567,10 +759,15 @@ func (gui *Gui) refresh(g *gocui.Gui, v *gocui.View) error {
 
 	gui.mu.RLock()
 	selectedSub := gui.selectedSub
+	selectedRG := gui.selectedRG
 	gui.mu.RUnlock()
 
 	if selectedSub != nil {
 		gui.loadResourceGroups(selectedSub.ID)
+	}
+
+	if selectedRG != nil && selectedSub != nil {
+		gui.loadResources(selectedSub.ID, selectedRG.Name)
 	}
 	return nil
 }
@@ -605,16 +802,58 @@ func (gui *Gui) refreshMainPanel() {
 	tabIndex := gui.tabIndex
 	selectedSub := gui.selectedSub
 	selectedRG := gui.selectedRG
+	selectedRes := gui.selectedRes
+	activePanel := gui.activePanel
 	gui.mu.RUnlock()
 
-	// Determine what to display based on what's selected
-	if selectedRG != nil && gui.activePanel == "resourcegroups" {
+	// Determine what to display based on what's selected and active panel
+	if selectedRes != nil && activePanel == "resources" {
+		// Show resource details
+		if tabIndex == 0 {
+			// Summary tab
+			gui.mainView.Title = " Details [Summary] "
+			fmt.Fprintf(gui.mainView, "Name: %s\n", selectedRes.Name)
+			fmt.Fprintf(gui.mainView, "Type: %s\n", selectedRes.Type)
+			fmt.Fprintf(gui.mainView, "Location: %s\n", selectedRes.Location)
+			fmt.Fprintf(gui.mainView, "ID: %s\n", selectedRes.ID)
+			fmt.Fprintf(gui.mainView, "Resource Group: %s\n", selectedRes.ResourceGroup)
+			if selectedRes.CreatedTime != "" {
+				fmt.Fprintf(gui.mainView, "Created: %s\n", selectedRes.CreatedTime)
+			}
+			if selectedRes.ChangedTime != "" {
+				fmt.Fprintf(gui.mainView, "Modified: %s\n", selectedRes.ChangedTime)
+			}
+			if len(selectedRes.Tags) > 0 {
+				fmt.Fprintln(gui.mainView, "\nTags:")
+				for k, v := range selectedRes.Tags {
+					fmt.Fprintf(gui.mainView, "  %s: %s\n", k, v)
+				}
+			}
+			// Show resource properties if available
+			if len(selectedRes.Properties) > 0 {
+				fmt.Fprintln(gui.mainView, "\nProperties:")
+				for k, v := range selectedRes.Properties {
+					fmt.Fprintf(gui.mainView, "  %s: %v\n", k, v)
+				}
+			}
+		} else {
+			// JSON tab
+			gui.mainView.Title = " Details [JSON] "
+			jsonData, err := json.MarshalIndent(selectedRes, "", "  ")
+			if err != nil {
+				fmt.Fprintf(gui.mainView, "Error marshaling JSON: %v\n", err)
+			} else {
+				fmt.Fprint(gui.mainView, string(jsonData))
+			}
+		}
+	} else if selectedRG != nil && (activePanel == "resourcegroups" || activePanel == "resources") {
 		// Show resource group details
 		if tabIndex == 0 {
 			// Summary tab
 			gui.mainView.Title = " Details [Summary] "
 			fmt.Fprintf(gui.mainView, "Name: %s\n", selectedRG.Name)
 			fmt.Fprintf(gui.mainView, "Location: %s\n", selectedRG.Location)
+			fmt.Fprintf(gui.mainView, "Subscription ID: %s\n", selectedRG.SubscriptionID)
 			fmt.Fprintf(gui.mainView, "ID: %s\n", selectedRG.ID)
 			fmt.Fprintf(gui.mainView, "Provisioning State: %s\n", selectedRG.ProvisioningState)
 			if len(selectedRG.Tags) > 0 {
@@ -665,13 +904,19 @@ func (gui *Gui) updateStatus() {
 	activePanel := gui.activePanel
 	subCount := len(gui.subscriptions)
 	rgCount := len(gui.resourceGroups)
+	resCount := len(gui.resources)
 	gui.mu.RUnlock()
 
 	var status string
-	if activePanel == "subscriptions" {
+	switch activePanel {
+	case "subscriptions":
 		status = fmt.Sprintf("↑↓: Navigate | Enter: Load RGs | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subCount)
-	} else {
-		status = fmt.Sprintf("↑↓: Navigate | Enter: View Details | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgCount)
+	case "resourcegroups":
+		status = fmt.Sprintf("↑↓: Navigate | Enter: Load Resources | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgCount)
+	case "resources":
+		status = fmt.Sprintf("↑↓: Navigate | Enter: View Details | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resCount)
+	default:
+		status = fmt.Sprintf("↑↓: Navigate | Tab: Switch | r: Refresh | q: Quit")
 	}
 	fmt.Fprint(gui.statusView, status)
 }
@@ -736,12 +981,90 @@ func (gui *Gui) loadResourceGroups(subscriptionID string) {
 		} else {
 			gui.selectedRG = nil
 		}
+		// Clear resources when switching subscriptions
+		gui.resources = nil
+		gui.selectedRes = nil
 		gui.mu.Unlock()
 
 		gui.g.UpdateAsync(func(g *gocui.Gui) error {
 			gui.refreshResourceGroupsPanel()
+			gui.refreshResourcesPanel()
 			gui.refreshMainPanel()
 			gui.updateStatus()
+			return nil
+		})
+	}()
+}
+
+func (gui *Gui) loadResources(subscriptionID string, resourceGroupName string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		resClient, err := azure.NewResourcesClient(gui.azureClient, subscriptionID)
+		if err != nil {
+			utils.Log("loadResources: Error creating client: %v", err)
+			return
+		}
+
+		resources, err := resClient.ListResourcesByResourceGroup(ctx, resourceGroupName)
+		if err != nil {
+			utils.Log("loadResources: Error listing resources: %v", err)
+			return
+		}
+
+		gui.mu.Lock()
+		gui.resources = resources
+		gui.resClient = resClient
+		if len(resources) > 0 {
+			gui.selectedRes = resources[0]
+		} else {
+			gui.selectedRes = nil
+		}
+		gui.mu.Unlock()
+
+		gui.g.UpdateAsync(func(g *gocui.Gui) error {
+			gui.refreshResourcesPanel()
+			gui.refreshMainPanel()
+			gui.updateStatus()
+			return nil
+		})
+	}()
+}
+
+// loadResourceDetails fetches full resource details with provider-specific API version
+func (gui *Gui) loadResourceDetails(originalRes *domain.Resource) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		gui.mu.RLock()
+		resClient := gui.resClient
+		gui.mu.RUnlock()
+
+		if resClient == nil {
+			utils.Log("loadResourceDetails: No resources client available")
+			return
+		}
+
+		// Fetch full resource details with provider-specific properties
+		resource, err := resClient.GetResource(ctx, originalRes.ID, originalRes.Type)
+		if err != nil {
+			utils.Log("loadResourceDetails: Error getting resource %s: %v", originalRes.ID, err)
+			return
+		}
+
+		// Preserve createdTime and changedTime from the original list data
+		// (these aren't returned by GetByID but were in the list view)
+		resource.CreatedTime = originalRes.CreatedTime
+		resource.ChangedTime = originalRes.ChangedTime
+
+		gui.mu.Lock()
+		gui.selectedRes = resource
+		gui.mu.Unlock()
+
+		gui.g.UpdateAsync(func(g *gocui.Gui) error {
+			gui.refreshMainPanel()
 			return nil
 		})
 	}()

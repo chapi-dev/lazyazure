@@ -10,7 +10,8 @@ import (
 
 // ResourceGroupsClient wraps the Azure resource groups client
 type ResourceGroupsClient struct {
-	client *armresources.ResourceGroupsClient
+	client         *armresources.ResourceGroupsClient
+	subscriptionID string
 }
 
 // NewResourceGroupsClient creates a new resource groups client for a subscription
@@ -21,7 +22,8 @@ func NewResourceGroupsClient(client *Client, subscriptionID string) (*ResourceGr
 	}
 
 	return &ResourceGroupsClient{
-		client: rgClient,
+		client:         rgClient,
+		subscriptionID: subscriptionID,
 	}, nil
 }
 
@@ -45,7 +47,7 @@ func (c *ResourceGroupsClient) ListResourceGroups(ctx context.Context) ([]*domai
 					ID:                deref(rg.ID),
 					ProvisioningState: deref(rg.Properties.ProvisioningState),
 					Tags:              convertTags(rg.Tags),
-					SubscriptionID:    "",
+					SubscriptionID:    c.subscriptionID,
 				})
 			}
 		}

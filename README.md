@@ -6,10 +6,11 @@ A TUI application for Azure resource management, inspired by lazydocker. Browse 
 
 ## Features
 
-- Browse Azure subscriptions and resource groups
+- Browse Azure subscriptions, resource groups, and resources
+- Full hierarchy navigation: Subscriptions → Resource Groups → Resources
 - View resource details in Summary or JSON format  
 - Interactive terminal interface with keyboard-driven navigation
-- Stackable panels showing subscriptions and resource groups simultaneously
+- Stackable panels showing all hierarchy levels simultaneously
 - Visual focus indicators for easy navigation
 - Clean, focused UI inspired by lazydocker
 
@@ -41,9 +42,11 @@ go build .
 
 **Navigation:**
 - **↑ / ↓** or **j / k**: Navigate items in current panel
-- **Tab**: Switch focus between Subscriptions and Resource Groups panels
+- **Tab**: Switch focus forward between panels (Subscriptions → Resource Groups → Resources)
+- **Shift+Tab**: Switch focus backward between panels (Resources → Resource Groups → Subscriptions)
 - **Enter** (on subscription): Load resource groups for that subscription
-- **Enter** (on resource group): View details in right panel
+- **Enter** (on resource group): Load resources in that resource group
+- **Enter** (on resource): View resource details in right panel
 
 **View Controls:**
 - **[ / ]**: Switch between Summary and JSON tabs
@@ -108,11 +111,13 @@ lazyazure/
 │   ├── azure/
 │   │   ├── client.go            # Azure SDK wrapper
 │   │   ├── subscriptions.go     # Subscription operations
-│   │   └── resourcegroups.go    # Resource group operations
+│   │   ├── resourcegroups.go    # Resource group operations
+│   │   └── resources.go         # Generic resource operations
 │   ├── domain/
 │   │   ├── user.go              # User domain model
 │   │   ├── subscription.go      # Subscription domain model
-│   │   └── resourcegroup.go     # ResourceGroup domain model
+│   │   ├── resourcegroup.go     # ResourceGroup domain model
+│   │   └── resource.go          # Generic Resource domain model
 │   ├── gui/
 │   │   ├── gui.go               # Main TUI controller
 │   │   └── panels/
@@ -127,7 +132,7 @@ lazyazure/
 
 - **Phase 1 (MVP)**: ✅ Complete - Auth & subscriptions working
 - **Phase 2**: ✅ Complete - Resource groups with stacked layout
-- **Phase 3**: 📝 Planned - Resources browser
+- **Phase 3**: ✅ Complete - Resources browser with 3-level hierarchy
 - **Phase 4**: 📝 Planned - Polish & advanced features
 
 See `PLAN.md` for the full implementation roadmap.
