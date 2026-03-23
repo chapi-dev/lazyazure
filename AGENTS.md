@@ -88,15 +88,18 @@ utils.Log("message: %s", value)
 ### 4. Layout and Panels
 
 #### Stacked Panel Layout
-The UI uses a fixed layout:
+The UI uses a 4-panel stacked layout on the left side:
 ```
 ┌─────────────────────┬──────────────────────────────────┐
-│ Auth (3 lines)      │  Details Panel                   │
+│ Auth (3-5 lines)    │  Details Panel                   │
 ├─────────────────────┤                                  │
-│ Subscriptions (40%)  │  Shows selected item details      │
-│                     │                                  │
+│ Subscriptions       │  Shows selected item details      │
+│ (~30% of sidebar)   │  with Summary/JSON tabs          │
 ├─────────────────────┤                                  │
-│ Resource Groups      │                                  │
+│ Resource Groups     │                                  │
+│ (~30% of sidebar)   │                                  │
+├─────────────────────┤                                  │
+│ Resources           │                                  │
 │ (remaining space)   │                                  │
 └─────────────────────┴──────────────────────────────────┘
 [Status Bar: context-aware help text                     ]
@@ -194,21 +197,29 @@ go test ./pkg/...
 ```
 pkg/
 ├── azure/          # Azure SDK clients
-│   ├── client.go
-│   ├── subscriptions.go
-│   └── resourcegroups.go
+│   ├── client.go            # Azure SDK wrapper with DefaultAzureCredential
+│   ├── client_test.go       # Azure client tests
+│   ├── subscriptions.go     # Subscription operations
+│   ├── resourcegroups.go    # Resource group operations
+│   ├── resourcegroups_test.go # RG tests
+│   ├── resources.go         # Generic resource operations
+│   └── api_versions.go      # Dynamic API version lookup
 ├── domain/         # Domain models (structs)
-│   ├── user.go
-│   ├── subscription.go
-│   └── resourcegroup.go
+│   ├── user.go              # User domain model
+│   ├── subscription.go      # Subscription domain model
+│   ├── resourcegroup.go     # ResourceGroup domain model
+│   ├── resource.go          # Generic Resource domain model
+│   └── domain_test.go       # Domain model tests (JSON tags, helpers)
 ├── gui/            # TUI implementation
-│   ├── gui.go      # Main GUI controller
+│   ├── gui.go               # Main GUI controller with all TUI logic
+│   ├── gui_test.go          # GUI tests
 │   └── panels/
-│       └── filtered_list.go
+│       └── filtered_list.go # Generic filtered list component
 ├── tasks/          # Async task management
-│   └── tasks.go
+│   ├── tasks.go
+│   └── tasks_test.go        # Task manager tests
 └── utils/          # Utilities
-    └── logger.go   # Debug logging
+    └── logger.go            # Debug logging (opt-in via LAZYAZURE_DEBUG)
 ```
 
 ### 10. Code Style
@@ -218,25 +229,6 @@ pkg/
 - **Error handling**: Return errors up the call stack, handle at boundaries
 - **Naming**: Use camelCase for unexported, CamelCase for exported
 - **Comments**: Document complex mutex patterns and why they're needed
-
-## Session Checklist
-
-Before finishing a session:
-
-- [ ] Code builds without errors: `go build .`
-- [ ] Tests pass: `go test ./pkg/...`
-- [ ] Code is properly formatted: `gofmt -l .` returns empty
-- [ ] Debug logging is properly guarded with `LAZYAZURE_DEBUG` check
-- [ ] No mutex deadlocks introduced (verify lock patterns)
-- [ ] Documentation updated if needed (README.md, this file)
-
-## Key Lessons from Development
-
-1. **Terminal UI is hard**: Threading + UI event loops require careful coordination
-2. **Mutexes are tricky**: Deadlocks happen easily when mixing UI and data operations
-3. **Test in real terminal**: IDE consoles don't work properly for TUI apps
-4. **Ghostty**: Preferred terminal for testing
-5. **Debug logs are essential**: But must be opt-in for production
 
 ### 11. UI Styling and Formatting
 
@@ -268,6 +260,25 @@ Before finishing a session:
 - Sort keys alphabetically for consistent display: `sort.Strings(keys)`
 - Apply to tags, properties, or any map data shown in UI
 - Prevents "shuffle" effect when navigating between items
+
+## Session Checklist
+
+Before finishing a session:
+
+- [ ] Code builds without errors: `go build .`
+- [ ] Tests pass: `go test ./pkg/...`
+- [ ] Code is properly formatted: `gofmt -l .` returns empty
+- [ ] Debug logging is properly guarded with `LAZYAZURE_DEBUG` check
+- [ ] No mutex deadlocks introduced (verify lock patterns)
+- [ ] Documentation updated if needed (README.md, this file)
+
+## Key Lessons from Development
+
+1. **Terminal UI is hard**: Threading + UI event loops require careful coordination
+2. **Mutexes are tricky**: Deadlocks happen easily when mixing UI and data operations
+3. **Test in real terminal**: IDE consoles don't work properly for TUI apps
+4. **Ghostty**: Preferred terminal for testing
+5. **Debug logs are essential**: But must be opt-in for production
 
 ## Questions to Ask User
 
