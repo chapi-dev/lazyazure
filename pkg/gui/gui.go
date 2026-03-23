@@ -915,14 +915,14 @@ func (gui *Gui) nextTab(g *gocui.Gui, v *gocui.View) error {
 
 // ANSI color codes
 const (
-	colorBoldRed = "\x1b[1;31m" // Bold red for keys (matching monokai style)
-	colorWhite   = "\x1b[37m"   // White for values
-	colorReset   = "\x1b[0m"    // Reset
+	colorBoldGreen = "\x1b[1;32m" // Bold green for keys (matching github-dark style)
+	colorWhite     = "\x1b[37m"   // White for values
+	colorReset     = "\x1b[0m"    // Reset
 )
 
-// printKeyValue prints a key-value pair with bold red key and white value
+// printKeyValue prints a key-value pair with bold green key and white value
 func printKeyValue(view *gocui.View, key string, value string) {
-	fmt.Fprintf(view, "%s%s:%s %s\n", colorBoldRed, key, colorReset, value)
+	fmt.Fprintf(view, "%s%s:%s %s\n", colorBoldGreen, key, colorReset, value)
 }
 
 // highlightJSON uses Chroma to syntax highlight JSON output
@@ -933,14 +933,14 @@ func highlightJSON(jsonData string) string {
 		lexer = lexers.Fallback
 	}
 
-	// Use monokai theme (good default for dark terminals with bold colors)
-	style := styles.Get("monokai")
+	// Use github-dark theme (good default for dark terminals)
+	style := styles.Get("github-dark")
 	if style == nil {
 		style = styles.Fallback
 	}
 
-	// Use the terminal formatter
-	formatter := formatters.Get("terminal")
+	// Use terminal256 formatter for full color support
+	formatter := formatters.Get("terminal256")
 	if formatter == nil {
 		formatter = formatters.Fallback
 	}
