@@ -4,6 +4,8 @@ A TUI application for Azure resource management, inspired by lazydocker. Browse 
 
 > **About This Project**: This project is vibe-coded with [OpenCode](https://opencode.ai) (AI pair programming). It is provided as-is without warranties. See [AGENTS.md](AGENTS.md) for development guidelines.
 
+![demo](./demo.png)
+
 ## Features
 
 - **Full Resource Hierarchy**: Browse Subscriptions → Resource Groups → Resources
