@@ -935,8 +935,14 @@ func formatPropertyValue(view *gocui.View, key string, value interface{}, indent
 	case map[string]interface{}:
 		// For maps, print the key and then recurse into the nested values
 		fmt.Fprintf(view, "%s%s%s:%s\n", colorBoldKey, indent+key, colorReset, "")
-		for nestedKey, nestedValue := range v {
-			formatPropertyValue(view, nestedKey, nestedValue, indent+"  ")
+		// Sort keys for consistent display
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, nestedKey := range keys {
+			formatPropertyValue(view, nestedKey, v[nestedKey], indent+"  ")
 		}
 	case []interface{}:
 		// For arrays, print the key and then each item
@@ -944,6 +950,9 @@ func formatPropertyValue(view *gocui.View, key string, value interface{}, indent
 		for i, item := range v {
 			formatPropertyValue(view, fmt.Sprintf("[%d]", i), item, indent+"  ")
 		}
+	case nil:
+		// Handle nil values explicitly
+		fmt.Fprintf(view, "%s%s%s:%s null\n", colorBoldKey, indent+key, colorReset, "")
 	default:
 		// For simple values, print key-value pair
 		fmt.Fprintf(view, "%s%s%s:%s %v\n", colorBoldKey, indent+key, colorReset, "", v)
@@ -1038,8 +1047,14 @@ func (gui *Gui) refreshMainPanel() {
 			if len(selectedRes.Properties) > 0 {
 				fmt.Fprintln(gui.mainView, "")
 				printKeyValue(gui.mainView, "Properties", "")
-				for k, v := range selectedRes.Properties {
-					formatPropertyValue(gui.mainView, k, v, "  ")
+				// Sort property keys for consistent display
+				propKeys := make([]string, 0, len(selectedRes.Properties))
+				for k := range selectedRes.Properties {
+					propKeys = append(propKeys, k)
+				}
+				sort.Strings(propKeys)
+				for _, k := range propKeys {
+					formatPropertyValue(gui.mainView, k, selectedRes.Properties[k], "  ")
 				}
 			}
 			// Show hint at the bottom when browsing from list view (not in main panel)
