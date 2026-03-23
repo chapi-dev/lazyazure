@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1022,8 +1023,14 @@ func (gui *Gui) refreshMainPanel() {
 			if len(selectedRes.Tags) > 0 {
 				fmt.Fprintln(gui.mainView, "")
 				printKeyValue(gui.mainView, "Tags", "")
-				for k, v := range selectedRes.Tags {
-					printKeyValue(gui.mainView, "  "+k, v)
+				// Sort tag keys for consistent display
+				tagKeys := make([]string, 0, len(selectedRes.Tags))
+				for k := range selectedRes.Tags {
+					tagKeys = append(tagKeys, k)
+				}
+				sort.Strings(tagKeys)
+				for _, k := range tagKeys {
+					printKeyValue(gui.mainView, "  "+k, selectedRes.Tags[k])
 				}
 			}
 			// Show resource properties if available
@@ -1068,8 +1075,14 @@ func (gui *Gui) refreshMainPanel() {
 			if len(selectedRG.Tags) > 0 {
 				fmt.Fprintln(gui.mainView, "")
 				printKeyValue(gui.mainView, "Tags", "")
-				for k, v := range selectedRG.Tags {
-					printKeyValue(gui.mainView, "  "+k, v)
+				// Sort tag keys for consistent display
+				tagKeys := make([]string, 0, len(selectedRG.Tags))
+				for k := range selectedRG.Tags {
+					tagKeys = append(tagKeys, k)
+				}
+				sort.Strings(tagKeys)
+				for _, k := range tagKeys {
+					printKeyValue(gui.mainView, "  "+k, selectedRG.Tags[k])
 				}
 			}
 		} else {
