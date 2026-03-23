@@ -200,6 +200,8 @@ func (gui *Gui) setupViews() error {
 		}
 		v.Title = " Details "
 		v.Wrap = true
+		// Enable scrolling
+		v.Autoscroll = false
 		gui.mainView = v
 	}
 
@@ -317,6 +319,27 @@ func (gui *Gui) setupKeybindings() error {
 	if err := gui.g.SetKeybinding("", gocui.KeyBacktab, gocui.ModNone, gui.switchPanelReverse); err != nil {
 		return err
 	}
+
+	// Main panel scrolling (when viewing resource details)
+	if err := gui.g.SetKeybinding("main", gocui.KeyArrowDown, gocui.ModNone, gui.scrollDown); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("main", gocui.KeyArrowUp, gocui.ModNone, gui.scrollUp); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("main", 'j', gocui.ModNone, gui.scrollDown); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("main", 'k', gocui.ModNone, gui.scrollUp); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("main", gocui.KeyPgdn, gocui.ModNone, gui.scrollPageDown); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("main", gocui.KeyPgup, gocui.ModNone, gui.scrollPageUp); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: Main panel scrolling set")
 
 	utils.Log("setupKeybindings: All keybindings set successfully")
 	return nil
@@ -718,6 +741,50 @@ func (gui *Gui) switchPanelReverse(g *gocui.Gui, v *gocui.View) error {
 	gui.updateStatus()
 
 	utils.Log("switchPanelReverse: switched successfully to %s", nextView)
+	return nil
+}
+
+// scrollDown scrolls the main panel down by one line
+func (gui *Gui) scrollDown(g *gocui.Gui, v *gocui.View) error {
+	if gui.mainView != nil {
+		ox, oy := gui.mainView.Origin()
+		gui.mainView.SetOrigin(ox, oy+1)
+	}
+	return nil
+}
+
+// scrollUp scrolls the main panel up by one line
+func (gui *Gui) scrollUp(g *gocui.Gui, v *gocui.View) error {
+	if gui.mainView != nil {
+		ox, oy := gui.mainView.Origin()
+		if oy > 0 {
+			gui.mainView.SetOrigin(ox, oy-1)
+		}
+	}
+	return nil
+}
+
+// scrollPageDown scrolls the main panel down by one page
+func (gui *Gui) scrollPageDown(g *gocui.Gui, v *gocui.View) error {
+	if gui.mainView != nil {
+		_, height := gui.mainView.Size()
+		ox, oy := gui.mainView.Origin()
+		gui.mainView.SetOrigin(ox, oy+height-1)
+	}
+	return nil
+}
+
+// scrollPageUp scrolls the main panel up by one page
+func (gui *Gui) scrollPageUp(g *gocui.Gui, v *gocui.View) error {
+	if gui.mainView != nil {
+		_, height := gui.mainView.Size()
+		ox, oy := gui.mainView.Origin()
+		if oy > height-1 {
+			gui.mainView.SetOrigin(ox, oy-(height-1))
+		} else {
+			gui.mainView.SetOrigin(ox, 0)
+		}
+	}
 	return nil
 }
 

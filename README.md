@@ -50,6 +50,8 @@ go build .
 
 **View Controls:**
 - **[ / ]**: Switch between Summary and JSON tabs
+- **↑ / ↓** or **j / k** (in details panel): Scroll content up/down
+- **PgUp / PgDn**: Scroll content by page
 - **r**: Refresh current data
 
 **Application:**
