@@ -18,6 +18,7 @@ A TUI application for Azure resource management, inspired by [lazydocker](https:
   - Tab/Shift+Tab to cycle between panels
   - Enter to drill down hierarchy
   - Visual focus indicators (green border on active panel)
+- **Copy portal link**: Copy link to subscription, resource group or resource to clipboard
 - **Smart Resource Loading**: Fetches full resource details with provider-specific API versions
 - **Real-time Updates**: Refresh data without restarting the application
 
@@ -87,6 +88,7 @@ go build .
 
 **Application:**
 - **q** or **Ctrl+C**: Quit
+- **c**: Copy portal link to clipboard
 
 ## Authentication
 
