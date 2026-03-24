@@ -1,8 +1,8 @@
 # LazyAzure
 
-A TUI application for Azure resource management, inspired by lazydocker. Browse Azure subscriptions, resource groups, and resources with an interactive terminal interface.
+A TUI application for Azure resource management, inspired by [lazydocker](https://github.com/jesseduffield/lazydocker). Browse Azure subscriptions, resource groups, and resources with an interactive terminal interface.
 
-> **About This Project**: This project is vibe-coded with [OpenCode](https://opencode.ai) (AI pair programming). It is provided as-is without warranties. See [AGENTS.md](AGENTS.md) for development guidelines.
+> **About This Project**: This project is vibe-coded with [OpenCode](https://opencode.ai). It is provided as-is without warranties ([MIT License](./LICENSE)). See [AGENTS.md](AGENTS.md) for development guidelines.
 
 ![demo](./demo.png)
 
@@ -21,7 +21,7 @@ A TUI application for Azure resource management, inspired by lazydocker. Browse 
 - **Smart Resource Loading**: Fetches full resource details with provider-specific API versions
 - **Real-time Updates**: Refresh data without restarting the application
 
-See `PLAN.md` for implementation details and roadmap.
+See [PLAN.md](./PLAN.md) for implementation details and roadmap.
 
 ## Installation
 
