@@ -1,5 +1,7 @@
 package domain
 
+import "fmt"
+
 // Subscription represents an Azure subscription
 type Subscription struct {
 	ID       string `json:"id"`
@@ -10,7 +12,7 @@ type Subscription struct {
 
 // DisplayString returns a string representation for the UI
 func (s *Subscription) DisplayString() string {
-	return s.Name
+	return fmt.Sprintf("%s (%s)", s.Name, s.ID)
 }
 
 // GetID returns the subscription ID
