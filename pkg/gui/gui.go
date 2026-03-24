@@ -831,44 +831,36 @@ func (gui *Gui) updatePanelTitles() {
 	activePanel := gui.activePanel
 	gui.mu.RUnlock()
 
-	// Update titles and frame colors to show which panel is active
+	// Update frame colors to show which panel is active (green = active, white = inactive)
 	if gui.subscriptionsView != nil {
 		if activePanel == "subscriptions" {
-			gui.subscriptionsView.Title = " ▶ Subscriptions "
 			gui.subscriptionsView.FrameColor = gocui.ColorGreen
 		} else {
-			gui.subscriptionsView.Title = "   Subscriptions "
 			gui.subscriptionsView.FrameColor = gocui.ColorWhite
 		}
 	}
 
 	if gui.resourceGroupsView != nil {
 		if activePanel == "resourcegroups" {
-			gui.resourceGroupsView.Title = " ▶ Resource Groups "
 			gui.resourceGroupsView.FrameColor = gocui.ColorGreen
 		} else {
-			gui.resourceGroupsView.Title = "   Resource Groups "
 			gui.resourceGroupsView.FrameColor = gocui.ColorWhite
 		}
 	}
 
 	if gui.resourcesView != nil {
 		if activePanel == "resources" {
-			gui.resourcesView.Title = " ▶ Resources "
 			gui.resourcesView.FrameColor = gocui.ColorGreen
 		} else {
-			gui.resourcesView.Title = "   Resources "
 			gui.resourcesView.FrameColor = gocui.ColorWhite
 		}
 	}
 
-	// Update main panel title and frame color
+	// Update main panel frame color
 	if gui.mainView != nil {
 		if activePanel == "main" {
-			gui.mainView.Title = " ▶ Details "
 			gui.mainView.FrameColor = gocui.ColorGreen
 		} else {
-			gui.mainView.Title = "   Details "
 			gui.mainView.FrameColor = gocui.ColorWhite
 		}
 	}
