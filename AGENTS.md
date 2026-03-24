@@ -107,9 +107,14 @@ The UI uses a 4-panel stacked layout on the left side:
 
 #### Panel Focus
 - Use `activePanel` field to track which panel has focus
-- Visual indicator: `▶` arrow in panel title
+- Visual indicator: Frame color (green = active, white = inactive)
 - Switch panels with `Tab` key
 - Each panel has independent navigation keybindings
+
+#### Panel Alignment
+- Calculate Y coordinates carefully to align panel bottoms
+- The resources panel should extend to `statusY` to align with the main/details panel
+- Account for frame borders when calculating heights: view ends at coordinate Y, border is drawn at Y
 
 ### 5. Azure SDK Patterns
 
@@ -168,9 +173,9 @@ Key test files:
 **Cause**: Wrong cursor calculation (mixing origin + cursor position)  
 **Fix**: Use `v.SetCursor(x, y)` with simple Y coordinate
 
-#### Issue: Visual indicator doesn't move
+#### Issue: Active panel frame color doesn't change
 **Cause**: Forgot to call `gui.updatePanelTitles()` after switching panels  
-**Fix**: Always update titles when changing `activePanel`
+**Fix**: Always update panel frame colors when changing `activePanel`
 
 #### Issue: Ctrl+C doesn't work
 **Cause**: Keybinding not registered for current view  
@@ -242,10 +247,12 @@ pkg/
 ### 11. UI Styling and Formatting
 
 #### ANSI Colors in gocui
-- gocui supports ANSI escape codes for colored text in views
+- gocui supports ANSI escape codes for colored text in **view content**
 - Use 256-color palette for precise color matching: `\x1b[38;5;114m` (color 114)
 - Combine with bold: `\x1b[1;38;5;114m` for bold + color
 - Always reset after color: `\x1b[0m`
+
+**Important**: gocui's `Title` field does NOT support ANSI escape codes. They will render as literal text (e.g., `[1m Title [0m`). Only use ANSI codes in view content (text written to the view), not in titles.
 
 #### Chroma for JSON Syntax Highlighting
 - Use `terminal256` formatter for full color support (not `terminal`)
