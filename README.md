@@ -43,30 +43,7 @@ See [PLAN.md](./PLAN.md) for implementation details and roadmap.
 
 ### Install Pre-built Binaries
 
-Download the latest binary for your platform from the [releases page](https://github.com/matsest/lazyazure/releases/latest).
-
-**macOS (Apple Silicon):**
-```bash
-curl -LO https://github.com/matsest/lazyazure/releases/download/v0.1.0/lazyazure_0.1.0_darwin_arm64
-chmod +x lazyazure_0.1.0_darwin_arm64
-sudo mv lazyazure_0.1.0_darwin_arm64 /usr/local/bin/lazyazure
-```
-
-**Linux:**
-```bash
-curl -LO https://github.com/matsest/lazyazure/releases/download/v0.1.0/lazyazure_0.1.0_linux_amd64
-chmod +x lazyazure_0.1.0_linux_amd64
-sudo mv lazyazure_0.1.0_linux_amd64 /usr/local/bin/lazyazure
-```
-
-**Windows:** Download `lazyazure_0.1.0_windows_amd64.exe` from the releases page and add it to your PATH.
-
-**Verify Checksum (optional):**
-```bash
-# Download checksums file and verify
-curl -LO https://github.com/matsest/lazyazure/releases/download/v0.1.0/lazyazure_0.1.0_checksums.txt
-sha256sum -c lazyazure_0.1.0_checksums.txt
-```
+Download pre-built binaries for Linux, macOS, and Windows from the [releases page](https://github.com/matsest/lazyazure/releases/latest). Each release includes installation instructions specific to that version.
 
 
 ### Install from Source
