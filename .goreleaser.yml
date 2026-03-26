@@ -20,8 +20,7 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - format_overrides:
-    - formats: binary
+  - format: binary
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     # Don't include README, LICENSE, etc.
     files:
