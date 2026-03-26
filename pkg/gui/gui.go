@@ -137,11 +137,12 @@ func (gui *Gui) setupViews() error {
 	rightX0 := sidebarWidth
 
 	// Calculate heights for stacked panels
-	// Auth: 5 lines, then distribute remaining among subscriptions, RGs, and resources
+	// Auth: 5 lines, then distribute remaining: 20% subscriptions, 30% RGs, ~50% resources
 	authHeight := 5
 	remainingHeight := maxY - authHeight - 2 // -2 for status bar
-	// Divide remaining space among 3 panels (subscriptions, RGs, resources)
-	panelHeight := remainingHeight / 3
+	// Divide remaining space: 20% for subscriptions, 30% for RGs, rest for resources
+	subHeight := remainingHeight / 5       // 20%
+	rgHeight := (remainingHeight * 3) / 10 // 30%
 
 	// Status bar at bottom
 	statusY := maxY - 2
@@ -160,7 +161,7 @@ func (gui *Gui) setupViews() error {
 
 	// 2. Subscriptions panel
 	subY0 := authHeight + 1
-	subY1 := subY0 + panelHeight
+	subY1 := subY0 + subHeight
 	if v, err := gui.g.SetView("subscriptions", 0, subY0, sidebarWidth-1, subY1, 0); err != nil {
 		if !gocui.IsUnknownView(err) {
 			return err
@@ -178,7 +179,7 @@ func (gui *Gui) setupViews() error {
 
 	// 3. Resource Groups panel
 	rgY0 := subY1 + 1
-	rgY1 := rgY0 + panelHeight
+	rgY1 := rgY0 + rgHeight
 	if v, err := gui.g.SetView("resourcegroups", 0, rgY0, sidebarWidth-1, rgY1, 0); err != nil {
 		if !gocui.IsUnknownView(err) {
 			return err

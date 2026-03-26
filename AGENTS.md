@@ -93,8 +93,8 @@ The UI uses a 4-panel stacked layout on the left side:
 ┌─────────────────────┬──────────────────────────────────┐
 │ Auth (3-5 lines)    │  Details Panel                   │
 ├─────────────────────┤                                  │
-│ Subscriptions       │  Shows selected item details      │
-│ (~30% of sidebar)   │  with Summary/JSON tabs          │
+│ Subscriptions       │  Shows selected item details     │
+│ (~20% of sidebar)   │  with Summary/JSON tabs          │
 ├─────────────────────┤                                  │
 │ Resource Groups     │                                  │
 │ (~30% of sidebar)   │                                  │
