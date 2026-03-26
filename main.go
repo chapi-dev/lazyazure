@@ -13,7 +13,34 @@ import (
 	"github.com/matsest/lazyazure/pkg/utils"
 )
 
+// printVersion prints version information
+func printVersion() {
+	// Shorten commit for display
+	displayCommit := commit
+	if len(displayCommit) > 7 {
+		displayCommit = displayCommit[:7]
+	}
+
+	if version == "dev" {
+		fmt.Printf("lazyazure %s (%s)\n", version, displayCommit)
+	} else {
+		fmt.Printf("lazyazure %s\n", version)
+	}
+}
+
+// Version info - set by GoReleaser during build
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 func main() {
+	// Handle version command
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version" || os.Args[1] == "-v") {
+		printVersion()
+		os.Exit(0)
+	}
 	// Initialize logger if LAZYAZURE_DEBUG is set
 	if utils.IsDebugEnabled() {
 		if err := utils.InitLogger(); err != nil {

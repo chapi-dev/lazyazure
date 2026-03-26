@@ -80,7 +80,19 @@ Or clone and build:
 ```bash
 git clone https://github.com/matsest/lazyazure.git
 cd lazyazure
-go build .
+make build
+```
+
+**Note:** Using `make build` injects version information (git commit) into the binary. Plain `go build .` works but shows `dev (unknown)` for version.
+
+### Check Version
+
+```bash
+lazyazure --version
+# or
+lazyazure version
+# or
+lazyazure -v
 ```
 
 ## Usage
