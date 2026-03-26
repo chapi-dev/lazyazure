@@ -1,0 +1,76 @@
+# This is an example .goreleaser.yml file with some sensible defaults.
+# Make sure to check the documentation at https://goreleaser.com
+
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - format: binary
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Don't include README, LICENSE, etc.
+    files:
+      - none*
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  format: "{{ .Message }}"
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: "^feat[\\w-]*:"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^fix[\\w-]*:"
+      order: 1
+    - title: Updates
+      order: 999
+
+release:
+  # Create a draft release
+  draft: false
+  # Prerelease for versions like v0.1.0-alpha1
+  prerelease: auto
+  # What to include in the release
+  mode: keep-existing
+  # Footer for the release notes
+  footer: |
+    ## Installation
+    
+    Download the binary for your platform and make it executable (on Unix systems):
+    
+    ```bash
+    # Linux/macOS example
+    chmod +x lazyazure_{{ .Version }}_linux_amd64
+    sudo mv lazyazure_{{ .Version }}_linux_amd64 /usr/local/bin/lazyazure
+    ```
+    
+    See the README for detailed installation instructions.
+
+# Disable source archives
+source:
+  enabled: false

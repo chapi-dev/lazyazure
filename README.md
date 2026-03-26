@@ -30,7 +30,7 @@ See [PLAN.md](./PLAN.md) for implementation details and roadmap.
 
 ### System Requirements
 
-- **Go**: 1.26.1+
+- **Go**: 1.26.1+ (only needed to install from source)
 - **Terminal**: Modern terminal with Unicode and 256-color support (IDE consoles not recommended). Some recommendations:
   - MacOS:Ghostty, iTerm2, Terminal.app
   - Linux: Ghostty, Alacritty, Kitty, etc.
@@ -40,6 +40,35 @@ See [PLAN.md](./PLAN.md) for implementation details and roadmap.
 
 - Azure account with appropriate permissions
 - Azure CLI installed (optional, for `az login` convenience method)
+
+### Install Pre-built Binaries
+
+Download the latest binary for your platform from the [releases page](https://github.com/matsest/lazyazure/releases/latest).
+
+**macOS (Apple Silicon):**
+```bash
+curl -LO https://github.com/matsest/lazyazure/releases/latest/download/lazyazure_darwin_arm64
+chmod +x lazyazure_darwin_arm64
+sudo mv lazyazure_darwin_arm64 /usr/local/bin/lazyazure
+```
+
+
+**Linux:**
+```bash
+curl -LO https://github.com/matsest/lazyazure/releases/latest/download/lazyazure_linux_amd64
+chmod +x lazyazure_linux_amd64
+sudo mv lazyazure_linux_amd64 /usr/local/bin/lazyazure
+```
+
+**Windows:** Download `lazyazure_windows_amd64.exe` from the releases page and add it to your PATH.
+
+**Verify Checksum (optional):**
+```bash
+# Download checksums file and verify
+curl -LO https://github.com/matsest/lazyazure/releases/latest/download/lazyazure_checksums.txt
+sha256sum -c lazyazure_checksums.txt
+```
+
 
 ### Install from Source
 
