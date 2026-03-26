@@ -19,7 +19,7 @@ Steps to reproduce the behavior:
 A clear and concise description of what you expected to happen.
 
 **Screenshots**
-If applicable, add screenshots to help explain your problem.
+If applicable, add screenshots to help explain your problem. Don't share anything sensitive.
 
 **Environment (please complete the following information):**
  - OS: [e.g. macOS, Linux, Windows]
@@ -29,7 +29,7 @@ If applicable, add screenshots to help explain your problem.
  - Azure authentication method: [e.g. Azure CLI, Managed Identity, Environment Variables]
 
 **Debug logs**
-If applicable, run with debug logging enabled and share relevant logs:
+If applicable, run with debug logging enabled and share relevant logs (don't share anything sensitive):
 ```bash
 LAZYAZURE_DEBUG=1 ./lazyazure
 # Then check: cat ~/.lazyazure/debug.log
