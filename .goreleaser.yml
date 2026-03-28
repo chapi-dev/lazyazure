@@ -47,13 +47,10 @@ changelog:
     - title: Improvements
       regexp: "^fix[\\w-]*:"
       order: 1
-    - title: Updates
+    - title: Other 
       order: 999
 
 release:
-  header: |
-    [Full Changelog](https://github.com/matsest/lazyazure/compare/{{ .PreviousTag }}...{{ .Tag }})
-
   # Create a draft release
   draft: false
   # Prerelease for versions like v0.1.0-alpha1
@@ -62,6 +59,8 @@ release:
   mode: keep-existing
   # Footer for the release notes
   footer: |
+    [Full Changelog](https://github.com/matsest/lazyazure/compare/{{ .PreviousTag }}...{{ .Tag }})
+
     ## Installation
 
     Download the appropriate binary for your platform below.
