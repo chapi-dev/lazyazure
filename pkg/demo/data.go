@@ -61,7 +61,7 @@ func createDemoSubscriptions() []*domain.Subscription {
 }
 
 func createDemoResourceGroups(subscriptionID string) []*domain.ResourceGroup {
-	prefix := "demo"
+	var prefix string
 	if subscriptionID == "00000000-0000-0000-0000-000000000001" {
 		prefix = "prod"
 	} else {
