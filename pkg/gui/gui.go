@@ -401,6 +401,12 @@ func (gui *Gui) setupKeybindings() error {
 	}
 	utils.Log("setupKeybindings: Copy portal link key set")
 
+	// Open portal link in browser (global)
+	if err := gui.g.SetKeybinding("", 'o', gocui.ModNone, gui.openPortalUrl); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: Open portal link key set")
+
 	// Panel switching with Tab key
 	if err := gui.g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, gui.switchPanel); err != nil {
 		return err
@@ -1760,6 +1766,56 @@ func (gui *Gui) copyPortalUrl(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+// openPortalUrl opens the Azure Portal URL for the currently selected item in the browser
+func (gui *Gui) openPortalUrl(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	selectedSub := gui.selectedSub
+	selectedRG := gui.selectedRG
+	selectedRes := gui.selectedRes
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	var url string
+	var itemType string
+
+	// Build URL based on what's selected and active panel
+	switch activePanel {
+	case "subscriptions":
+		if selectedSub == nil {
+			gui.showTemporaryStatus("No subscription selected")
+			return nil
+		}
+		url = utils.BuildSubscriptionPortalURL(selectedSub.TenantID, selectedSub.ID)
+		itemType = "subscription"
+	case "resourcegroups":
+		if selectedRG == nil || selectedSub == nil {
+			gui.showTemporaryStatus("No resource group selected")
+			return nil
+		}
+		url = utils.BuildResourceGroupPortalURL(selectedSub.TenantID, selectedRG.SubscriptionID, selectedRG.Name)
+		itemType = "resource group"
+	case "resources", "main":
+		if selectedRes == nil || selectedSub == nil {
+			gui.showTemporaryStatus("No resource selected")
+			return nil
+		}
+		url = utils.BuildResourcePortalURL(selectedSub.TenantID, selectedRes.ID)
+		itemType = "resource"
+	default:
+		gui.showTemporaryStatus("No item selected")
+		return nil
+	}
+
+	// Open in browser
+	if err := utils.OpenBrowser(url); err != nil {
+		gui.showTemporaryStatus(fmt.Sprintf("Failed to open browser: %v", err))
+		return nil
+	}
+
+	gui.showTemporaryStatus(fmt.Sprintf("Opening %s portal link in browser", itemType))
+	return nil
+}
+
 // showTemporaryStatus shows a temporary status message that reverts after a delay
 func (gui *Gui) showTemporaryStatus(message string) {
 	if gui.statusView == nil {
@@ -2094,24 +2150,24 @@ func (gui *Gui) updateStatus() {
 	switch activePanel {
 	case "subscriptions":
 		if gui.subList.IsFiltering() {
-			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load RGs | c: Copy | Tab: Switch | r: Refresh | q: Quit",
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load RGs | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
 				gui.subList.GetFilterText(), subShowing, subTotal)
 		} else {
-			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load RGs | c: Copy | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subTotal)
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load RGs | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subTotal)
 		}
 	case "resourcegroups":
 		if gui.rgList.IsFiltering() {
-			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load Resources | c: Copy | Tab: Switch | r: Refresh | q: Quit",
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load Resources | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
 				gui.rgList.GetFilterText(), rgShowing, rgTotal)
 		} else {
-			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load Resources | c: Copy | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgTotal)
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load Resources | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgTotal)
 		}
 	case "resources":
 		if gui.resList.IsFiltering() {
-			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: View Details | c: Copy | Tab: Switch | r: Refresh | q: Quit",
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: View Details | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
 				gui.resList.GetFilterText(), resShowing, resTotal)
 		} else {
-			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: View Details | c: Copy | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resTotal)
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: View Details | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resTotal)
 		}
 	case "main":
 		if gui.mainPanelSearch != nil && gui.mainPanelSearch.IsActive() {
@@ -2131,7 +2187,7 @@ func (gui *Gui) updateStatus() {
 					current, total, gui.mainPanelSearch.GetSearchText())
 			}
 		} else {
-			status = fmt.Sprintf("↑/↓ or j/k: Scroll | PgUp/PgDn: Page | /: Search | c: Copy Link | Tab: Back to List | []: Tabs | r: Refresh | q: Quit")
+			status = fmt.Sprintf("↑/↓ or j/k: Scroll | PgUp/PgDn: Page | /: Search | c: Copy | o: Open | Tab: Back to List | []: Tabs | r: Refresh | q: Quit")
 		}
 	default:
 		status = fmt.Sprintf("↑↓: Navigate | Tab: Switch | r: Refresh | q: Quit")

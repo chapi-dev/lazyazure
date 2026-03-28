@@ -11,6 +11,8 @@ Direct Dependencies:
   Copyright (c) 2017 Alec Thomas
 - clipboard (github.com/atotto/clipboard) - BSD 3-Clause License
   Copyright (c) 2013 Ato Araki
+- browser (github.com/pkg/browser) - BSD 2-Clause License
+  Copyright (c) 2014 Dave Cheney
 - tcell (github.com/gdamore/tcell) - Apache License 2.0
 - MSAL for Go (github.com/AzureAD/microsoft-authentication-library-for-go) - MIT License
   Copyright (c) Microsoft Corporation

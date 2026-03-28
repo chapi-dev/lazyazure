@@ -148,6 +148,7 @@ See other methods under [authentication](#Authentication).
 **Application:**
 - **q** or **Ctrl+C**: Quit
 - **c**: Copy portal link to clipboard
+- **o**: Open portal link in browser
 
 ## Authentication
 

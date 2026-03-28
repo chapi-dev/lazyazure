@@ -292,6 +292,8 @@ pkg/
 └── utils/          # Utilities
     ├── logger.go            # Debug logging (opt-in via LAZYAZURE_DEBUG)
     ├── clipboard.go         # Clipboard operations (cross-platform)
+    ├── browser.go           # Browser opening operations (cross-platform)
+    ├── browser_test.go      # Browser utility tests
     ├── portal_urls.go       # Azure Portal URL generation
     └── portal_urls_test.go  # Portal URL tests
 ```
