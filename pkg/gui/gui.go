@@ -486,9 +486,8 @@ func (gui *Gui) startSearch(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	// Start list panel search (filter mode)
-	if gui.searchBar == nil {
-		gui.searchBar = panels.NewSearchBar(gui.g, gui.onSearchChanged, gui.onSearchCancel, gui.onSearchConfirm)
-	}
+	// Always recreate search bar with list panel callbacks (in case we switched from main panel)
+	gui.searchBar = panels.NewSearchBar(gui.g, gui.onSearchChanged, gui.onSearchCancel, gui.onSearchConfirm)
 
 	if err := gui.searchBar.Show(); err != nil {
 		utils.Log("startSearch: ERROR showing search bar: %v", err)
