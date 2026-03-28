@@ -129,11 +129,11 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
 **Status:** Partially implemented - core features complete, advanced features in backlog
 
 **Keyboard Shortcuts**
-   - `/` for search
+   - ✅ `/` for search (real-time filter across all panels)
    - ✅ `q` or `Ctrl+C` to quit
    - ✅ Arrow keys for navigation
    - ✅ `Tab` for switching right panel tabs
-   - `Enter` to drill down, `Esc` or `h` to go back
+   - ✅ `Enter` to drill down, `Escape` to clear filter
 
 **Visual Polish**
 - ✅ Color-coded keys in Summary view (green)
@@ -165,10 +165,12 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
 
 The following features are planned but not yet implemented:
 
-### Search & Filtering
-- Real-time search/filter in all panels (`/` key)
-- Fuzzy matching
-- Case-insensitive search
+### Search & Filtering ✅ COMPLETE
+- ✅ Real-time search/filter in all panels (`/` key)
+- ✅ Case-insensitive search on displayed text (name + suffix)
+- ✅ Backspace, Ctrl+U (clear), Ctrl+W (delete word) support
+- ✅ Escape to cancel, Enter to confirm
+- 📝 Fuzzy matching (future enhancement)
 
 ### Navigation Improvements
 - `Esc` or `h` to navigate back up hierarchy
@@ -232,7 +234,10 @@ lazyazure/
 │   │   ├── gui.go               # Main GUI controller with all TUI logic
 │   │   ├── gui_test.go          # GUI tests
 │   │   └── panels/
-│   │       └── filtered_list.go # Generic filtered list component
+│   │       ├── filtered_list.go      # Generic filtered list component
+│   │       ├── filtered_list_test.go # Filtered list tests
+│   │       ├── search_bar.go         # Search bar UI component
+│   │       └── search_bar_test.go    # Search bar tests
 │   ├── tasks/
 │   │   ├── tasks.go             # Async task management
 │   │   └── tasks_test.go        # Task manager tests
@@ -278,7 +283,7 @@ lazyazure/
 - [x] Resource type display names (human-readable)
 - [x] Gray suffix formatting for all sidebar items
 - [x] Copy portal link to clipboard
-- [ ] Search/filter functionality
+- [x] Search/filter functionality (real-time, case-insensitive)
 - [ ] Configuration file support
 - [ ] API response caching
 - [ ] Background refresh

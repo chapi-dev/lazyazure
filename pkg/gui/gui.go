@@ -15,6 +15,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/jesseduffield/gocui"
 	"github.com/matsest/lazyazure/pkg/domain"
+	"github.com/matsest/lazyazure/pkg/gui/panels"
 	"github.com/matsest/lazyazure/pkg/tasks"
 	"github.com/matsest/lazyazure/pkg/utils"
 )
@@ -66,6 +67,15 @@ type Gui struct {
 	tabIndex    int    // 0 = summary, 1 = json
 	activePanel string // "subscriptions", "resourcegroups", or "resources"
 
+	// Filtered lists for search
+	subList *panels.FilteredList[*domain.Subscription]
+	rgList  *panels.FilteredList[*domain.ResourceGroup]
+	resList *panels.FilteredList[*domain.Resource]
+
+	// Search state
+	searchBar   *panels.SearchBar
+	isSearching bool
+
 	mu sync.RWMutex
 }
 
@@ -77,6 +87,9 @@ func NewGui(azureClient AzureClient, clientFactory AzureClientFactory) (*Gui, er
 		taskManager:   tasks.NewTaskManager(),
 		tabIndex:      0,
 		activePanel:   "subscriptions",
+		subList:       panels.NewFilteredList[*domain.Subscription](),
+		rgList:        panels.NewFilteredList[*domain.ResourceGroup](),
+		resList:       panels.NewFilteredList[*domain.Resource](),
 	}, nil
 }
 
@@ -266,7 +279,7 @@ func (gui *Gui) setupKeybindings() error {
 	utils.Log("setupKeybindings: Setting up keybindings...")
 
 	// Global quit
-	quitKeys := []string{"", "subscriptions", "resourcegroups", "resources", "main"}
+	quitKeys := []string{"", "subscriptions", "resourcegroups", "resources", "main", "search"}
 	for _, view := range quitKeys {
 		if err := gui.g.SetKeybinding(view, gocui.KeyCtrlC, gocui.ModNone, gui.quit); err != nil {
 			return err
@@ -361,6 +374,25 @@ func (gui *Gui) setupKeybindings() error {
 		return err
 	}
 
+	// Search (/) - activates for current panel
+	if err := gui.g.SetKeybinding("", '/', gocui.ModNone, gui.startSearch); err != nil {
+		return err
+	}
+
+	// Escape to clear filter (for list panels)
+	if err := gui.g.SetKeybinding("subscriptions", gocui.KeyEsc, gocui.ModNone, gui.clearFilter); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resourcegroups", gocui.KeyEsc, gocui.ModNone, gui.clearFilter); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("resources", gocui.KeyEsc, gocui.ModNone, gui.clearFilter); err != nil {
+		return err
+	}
+
+	// Search input handling (only when search is active)
+	// These will be bound dynamically when search is activated
+
 	// Main panel scrolling (when viewing resource details)
 	if err := gui.g.SetKeybinding("main", gocui.KeyArrowDown, gocui.ModNone, gui.scrollDown); err != nil {
 		return err
@@ -391,6 +423,334 @@ func (gui *Gui) quit(g *gocui.Gui, v *gocui.View) error {
 	gui.taskManager.StopAll()
 	utils.Log("quit: Task manager stopped")
 	return gocui.ErrQuit
+}
+
+// startSearch activates search mode for the current panel
+func (gui *Gui) startSearch(g *gocui.Gui, v *gocui.View) error {
+	utils.Log("startSearch: Activating search mode")
+
+	// Don't start search if already searching or in main panel
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	if activePanel == "main" {
+		return nil
+	}
+
+	if gui.searchBar == nil {
+		gui.searchBar = panels.NewSearchBar(gui.g, gui.onSearchChanged, gui.onSearchCancel, gui.onSearchConfirm)
+	}
+
+	if err := gui.searchBar.Show(); err != nil {
+		utils.Log("startSearch: ERROR showing search bar: %v", err)
+		return err
+	}
+
+	gui.isSearching = true
+	utils.Log("startSearch: Setting up search keybindings...")
+	gui.setupSearchKeybindings()
+	utils.Log("startSearch: Search keybindings setup complete")
+	gui.updateStatus()
+	utils.Log("startSearch: Status updated, search mode ready")
+
+	return nil
+}
+
+// setupSearchKeybindings binds keys for search input
+func (gui *Gui) setupSearchKeybindings() {
+	utils.Log("setupSearchKeybindings: Setting up search keybindings")
+
+	// Character input - a-z
+	for ch := 'a'; ch <= 'z'; ch++ {
+		if err := gui.g.SetKeybinding("search", ch, gocui.ModNone, gui.makeSearchRuneHandler(ch)); err != nil {
+			utils.Log("setupSearchKeybindings: ERROR binding '%c': %v", ch, err)
+		}
+	}
+	utils.Log("setupSearchKeybindings: a-z bound")
+
+	// Character input - A-Z
+	for ch := 'A'; ch <= 'Z'; ch++ {
+		if err := gui.g.SetKeybinding("search", ch, gocui.ModNone, gui.makeSearchRuneHandler(ch)); err != nil {
+			utils.Log("setupSearchKeybindings: ERROR binding '%c': %v", ch, err)
+		}
+	}
+	utils.Log("setupSearchKeybindings: A-Z bound")
+
+	// Numbers
+	for ch := '0'; ch <= '9'; ch++ {
+		if err := gui.g.SetKeybinding("search", ch, gocui.ModNone, gui.makeSearchRuneHandler(ch)); err != nil {
+			utils.Log("setupSearchKeybindings: ERROR binding '%c': %v", ch, err)
+		}
+	}
+	utils.Log("setupSearchKeybindings: 0-9 bound")
+
+	// Special characters common in Azure names
+	specialChars := []rune{'-', '_', '.', '@', '/', '(', ')'}
+	for _, ch := range specialChars {
+		if err := gui.g.SetKeybinding("search", ch, gocui.ModNone, gui.makeSearchRuneHandler(ch)); err != nil {
+			utils.Log("setupSearchKeybindings: ERROR binding '%c': %v", ch, err)
+		}
+	}
+	utils.Log("setupSearchKeybindings: Special chars bound")
+
+	// Space
+	if err := gui.g.SetKeybinding("search", gocui.KeySpace, gocui.ModNone, gui.onSearchSpace); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding space: %v", err)
+	}
+
+	// Backspace
+	if err := gui.g.SetKeybinding("search", gocui.KeyBackspace, gocui.ModNone, gui.onSearchBackspace); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding backspace: %v", err)
+	}
+	if err := gui.g.SetKeybinding("search", gocui.KeyBackspace2, gocui.ModNone, gui.onSearchBackspace); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding backspace2: %v", err)
+	}
+
+	// Ctrl+U - clear all
+	if err := gui.g.SetKeybinding("search", gocui.KeyCtrlU, gocui.ModNone, gui.onSearchClear); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding Ctrl+U: %v", err)
+	}
+
+	// Ctrl+W - delete word
+	if err := gui.g.SetKeybinding("search", gocui.KeyCtrlW, gocui.ModNone, gui.onSearchDeleteWord); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding Ctrl+W: %v", err)
+	}
+
+	// Enter - confirm search and exit
+	if err := gui.g.SetKeybinding("search", gocui.KeyEnter, gocui.ModNone, gui.onSearchEnter); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding Enter: %v", err)
+	}
+
+	// Escape - cancel search
+	if err := gui.g.SetKeybinding("search", gocui.KeyEsc, gocui.ModNone, gui.onSearchEscape); err != nil {
+		utils.Log("setupSearchKeybindings: ERROR binding Escape: %v", err)
+	}
+
+	utils.Log("setupSearchKeybindings: All search keybindings set")
+}
+
+// onSearchEnter confirms the search
+func (gui *Gui) onSearchEnter(g *gocui.Gui, v *gocui.View) error {
+	if gui.searchBar != nil {
+		gui.searchBar.Confirm()
+		gui.endSearch()
+	}
+	return nil
+}
+
+// onSearchEscape cancels the search
+func (gui *Gui) onSearchEscape(g *gocui.Gui, v *gocui.View) error {
+	if gui.searchBar != nil {
+		gui.searchBar.Cancel()
+		gui.endSearch()
+	}
+	return nil
+}
+
+// makeSearchRuneHandler creates a handler for a specific character
+func (gui *Gui) makeSearchRuneHandler(ch rune) func(g *gocui.Gui, v *gocui.View) error {
+	return func(g *gocui.Gui, v *gocui.View) error {
+		utils.Log("makeSearchRuneHandler: Character '%c' pressed", ch)
+		if gui.searchBar != nil {
+			gui.searchBar.HandleRune(ch)
+		}
+		return nil
+	}
+}
+
+// onSearchSpace handles space input in search
+func (gui *Gui) onSearchSpace(g *gocui.Gui, v *gocui.View) error {
+	if gui.searchBar != nil {
+		gui.searchBar.HandleRune(' ')
+	}
+	return nil
+}
+
+// onSearchBackspace handles backspace in search
+func (gui *Gui) onSearchBackspace(g *gocui.Gui, v *gocui.View) error {
+	if gui.searchBar != nil {
+		gui.searchBar.Backspace()
+	}
+	return nil
+}
+
+// onSearchClear clears the search text
+func (gui *Gui) onSearchClear(g *gocui.Gui, v *gocui.View) error {
+	if gui.searchBar != nil {
+		gui.searchBar.Clear()
+	}
+	return nil
+}
+
+// onSearchDeleteWord deletes the last word
+func (gui *Gui) onSearchDeleteWord(g *gocui.Gui, v *gocui.View) error {
+	if gui.searchBar != nil {
+		gui.searchBar.DeleteWord()
+	}
+	return nil
+}
+
+// endSearch exits search mode and returns focus to the active panel
+func (gui *Gui) endSearch() error {
+	if gui.searchBar != nil {
+		gui.searchBar.Hide()
+	}
+
+	gui.isSearching = false
+	gui.updateStatus()
+
+	// Return focus to the active panel
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	gui.g.SetCurrentView(activePanel)
+
+	return nil
+}
+
+// onSearchChanged is called when search text changes
+func (gui *Gui) onSearchChanged() {
+	if gui.searchBar == nil {
+		return
+	}
+
+	searchText := gui.searchBar.GetText()
+	utils.Log("onSearchChanged: Search text changed to: %s", searchText)
+
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	utils.Log("onSearchChanged: Active panel is %s, calling UpdateAsync...", activePanel)
+
+	// Apply filter to the active panel's list
+	// Use UpdateAsync to avoid blocking the keybinding handler
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		utils.Log("onSearchChanged: UpdateAsync callback executing")
+		switch activePanel {
+		case "subscriptions":
+			gui.subList.SetFilter(searchText)
+			gui.refreshSubscriptionsPanel()
+			gui.updateSubscriptionSelectionFromFiltered()
+		case "resourcegroups":
+			gui.rgList.SetFilter(searchText)
+			gui.refreshResourceGroupsPanel()
+			gui.updateRGSelectionFromFiltered()
+		case "resources":
+			gui.resList.SetFilter(searchText)
+			gui.refreshResourcesPanel()
+			gui.updateResSelectionFromFiltered()
+		}
+
+		gui.refreshMainPanel()
+		gui.updateStatus()
+		utils.Log("onSearchChanged: UpdateAsync callback completed")
+		return nil
+	})
+
+	utils.Log("onSearchChanged: UpdateAsync queued")
+}
+
+// onSearchCancel is called when search is cancelled
+func (gui *Gui) onSearchCancel() {
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	// Clear the filter for the active panel
+	switch activePanel {
+	case "subscriptions":
+		gui.subList.ClearFilter()
+		gui.refreshSubscriptionsPanel()
+	case "resourcegroups":
+		gui.rgList.ClearFilter()
+		gui.refreshResourceGroupsPanel()
+	case "resources":
+		gui.resList.ClearFilter()
+		gui.refreshResourcesPanel()
+	}
+
+	gui.refreshMainPanel()
+	gui.updateStatus()
+}
+
+// onSearchConfirm is called when search is confirmed
+func (gui *Gui) onSearchConfirm() {
+	// Keep the current filter, just exit search mode
+	utils.Log("onSearchConfirm: Search confirmed")
+}
+
+// clearFilter clears the current panel's filter
+func (gui *Gui) clearFilter(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	switch activePanel {
+	case "subscriptions":
+		if gui.subList.IsFiltering() {
+			gui.subList.ClearFilter()
+			gui.refreshSubscriptionsPanel()
+		}
+	case "resourcegroups":
+		if gui.rgList.IsFiltering() {
+			gui.rgList.ClearFilter()
+			gui.refreshResourceGroupsPanel()
+		}
+	case "resources":
+		if gui.resList.IsFiltering() {
+			gui.resList.ClearFilter()
+			gui.refreshResourcesPanel()
+		}
+	}
+
+	gui.refreshMainPanel()
+	gui.updateStatus()
+	return nil
+}
+
+// updateSubscriptionSelectionFromFiltered updates selection based on filtered results
+func (gui *Gui) updateSubscriptionSelectionFromFiltered() {
+	if gui.subscriptionsView == nil {
+		return
+	}
+
+	_, cy := gui.subscriptionsView.Cursor()
+	if sub, ok := gui.subList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedSub = sub
+		gui.mu.Unlock()
+	}
+}
+
+// updateRGSelectionFromFiltered updates selection based on filtered results
+func (gui *Gui) updateRGSelectionFromFiltered() {
+	if gui.resourceGroupsView == nil {
+		return
+	}
+
+	_, cy := gui.resourceGroupsView.Cursor()
+	if rg, ok := gui.rgList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedRG = rg
+		gui.mu.Unlock()
+	}
+}
+
+// updateResSelectionFromFiltered updates selection based on filtered results
+func (gui *Gui) updateResSelectionFromFiltered() {
+	if gui.resourcesView == nil {
+		return
+	}
+
+	_, cy := gui.resourcesView.Cursor()
+	if res, ok := gui.resList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedRes = res
+		gui.mu.Unlock()
+	}
 }
 
 func (gui *Gui) loadUserInfo() {
@@ -445,12 +805,10 @@ func (gui *Gui) refreshSubscriptionsPanel() {
 	}
 
 	gui.subscriptionsView.Clear()
-	gui.mu.RLock()
-	subs := gui.subscriptions
-	gui.mu.RUnlock()
+	displayStrings := gui.subList.GetFilteredDisplayStrings()
 
-	for _, sub := range subs {
-		fmt.Fprintln(gui.subscriptionsView, formatWithGraySuffix(sub.DisplayString(), sub.GetDisplaySuffix()))
+	for _, display := range displayStrings {
+		fmt.Fprintln(gui.subscriptionsView, display)
 	}
 }
 
@@ -460,12 +818,10 @@ func (gui *Gui) refreshResourceGroupsPanel() {
 	}
 
 	gui.resourceGroupsView.Clear()
-	gui.mu.RLock()
-	rgs := gui.resourceGroups
-	gui.mu.RUnlock()
+	displayStrings := gui.rgList.GetFilteredDisplayStrings()
 
-	for _, rg := range rgs {
-		fmt.Fprintln(gui.resourceGroupsView, formatWithGraySuffix(rg.DisplayString(), rg.GetDisplaySuffix()))
+	for _, display := range displayStrings {
+		fmt.Fprintln(gui.resourceGroupsView, display)
 	}
 }
 
@@ -475,20 +831,16 @@ func (gui *Gui) refreshResourcesPanel() {
 	}
 
 	gui.resourcesView.Clear()
-	gui.mu.RLock()
-	resources := gui.resources
-	gui.mu.RUnlock()
+	displayStrings := gui.resList.GetFilteredDisplayStrings()
 
-	for _, res := range resources {
-		fmt.Fprintln(gui.resourcesView, formatWithGraySuffix(res.DisplayString(), res.GetDisplaySuffix()))
+	for _, display := range displayStrings {
+		fmt.Fprintln(gui.resourcesView, display)
 	}
 }
 
 // Placeholder implementations for the rest
 func (gui *Gui) nextSub(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.RLock()
-	subCount := len(gui.subscriptions)
-	gui.mu.RUnlock()
+	subCount := gui.subList.Len()
 
 	if subCount == 0 {
 		return nil
@@ -504,9 +856,7 @@ func (gui *Gui) nextSub(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (gui *Gui) prevSub(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.RLock()
-	subCount := len(gui.subscriptions)
-	gui.mu.RUnlock()
+	subCount := gui.subList.Len()
 
 	if subCount == 0 {
 		return nil
@@ -523,19 +873,15 @@ func (gui *Gui) prevSub(g *gocui.Gui, v *gocui.View) error {
 
 func (gui *Gui) updateSubscriptionSelection(v *gocui.View) {
 	_, cy := v.Cursor()
-	idx := cy
-
-	gui.mu.Lock()
-	if idx >= 0 && idx < len(gui.subscriptions) {
-		gui.selectedSub = gui.subscriptions[idx]
+	if sub, ok := gui.subList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedSub = sub
+		gui.mu.Unlock()
 	}
-	gui.mu.Unlock()
 }
 
 func (gui *Gui) nextRG(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.RLock()
-	rgCount := len(gui.resourceGroups)
-	gui.mu.RUnlock()
+	rgCount := gui.rgList.Len()
 
 	if rgCount == 0 {
 		return nil
@@ -551,9 +897,7 @@ func (gui *Gui) nextRG(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (gui *Gui) prevRG(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.RLock()
-	rgCount := len(gui.resourceGroups)
-	gui.mu.RUnlock()
+	rgCount := gui.rgList.Len()
 
 	if rgCount == 0 {
 		return nil
@@ -570,19 +914,15 @@ func (gui *Gui) prevRG(g *gocui.Gui, v *gocui.View) error {
 
 func (gui *Gui) updateRGSelection(v *gocui.View) {
 	_, cy := v.Cursor()
-	idx := cy
-
-	gui.mu.Lock()
-	if idx >= 0 && idx < len(gui.resourceGroups) {
-		gui.selectedRG = gui.resourceGroups[idx]
+	if rg, ok := gui.rgList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedRG = rg
+		gui.mu.Unlock()
 	}
-	gui.mu.Unlock()
 }
 
 func (gui *Gui) nextRes(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.RLock()
-	resCount := len(gui.resources)
-	gui.mu.RUnlock()
+	resCount := gui.resList.Len()
 
 	if resCount == 0 {
 		return nil
@@ -598,9 +938,7 @@ func (gui *Gui) nextRes(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (gui *Gui) prevRes(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.RLock()
-	resCount := len(gui.resources)
-	gui.mu.RUnlock()
+	resCount := gui.resList.Len()
 
 	if resCount == 0 {
 		return nil
@@ -617,28 +955,23 @@ func (gui *Gui) prevRes(g *gocui.Gui, v *gocui.View) error {
 
 func (gui *Gui) updateResSelection(v *gocui.View) {
 	_, cy := v.Cursor()
-	idx := cy
-
-	gui.mu.Lock()
-	if idx >= 0 && idx < len(gui.resources) {
-		gui.selectedRes = gui.resources[idx]
+	if res, ok := gui.resList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedRes = res
+		gui.mu.Unlock()
 	}
-	gui.mu.Unlock()
 }
 
 func (gui *Gui) onSubEnter(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.Lock()
-	if len(gui.subscriptions) == 0 {
-		gui.mu.Unlock()
+	if gui.subList.Len() == 0 {
 		return nil
 	}
 
 	_, cy := v.Cursor()
-	idx := cy
-
-	if idx >= 0 && idx < len(gui.subscriptions) {
-		gui.selectedSub = gui.subscriptions[idx]
-		subID := gui.selectedSub.ID
+	if sub, ok := gui.subList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedSub = sub
+		subID := sub.ID
 		gui.mu.Unlock()
 
 		// Load resource groups for this subscription
@@ -651,25 +984,20 @@ func (gui *Gui) onSubEnter(g *gocui.Gui, v *gocui.View) error {
 		gui.mu.Unlock()
 		gui.updatePanelTitles()
 		gui.updateStatus()
-	} else {
-		gui.mu.Unlock()
 	}
 	return nil
 }
 
 func (gui *Gui) onRGEnter(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.Lock()
-	if len(gui.resourceGroups) == 0 {
-		gui.mu.Unlock()
+	if gui.rgList.Len() == 0 {
 		return nil
 	}
 
 	_, cy := v.Cursor()
-	idx := cy
-
-	if idx >= 0 && idx < len(gui.resourceGroups) {
-		gui.selectedRG = gui.resourceGroups[idx]
-		rgName := gui.selectedRG.Name
+	if rg, ok := gui.rgList.Get(cy); ok {
+		gui.mu.Lock()
+		gui.selectedRG = rg
+		rgName := rg.Name
 		subID := gui.selectedSub.ID
 		gui.mu.Unlock()
 
@@ -683,25 +1011,19 @@ func (gui *Gui) onRGEnter(g *gocui.Gui, v *gocui.View) error {
 		gui.mu.Unlock()
 		gui.updatePanelTitles()
 		gui.updateStatus()
-	} else {
-		gui.mu.Unlock()
 	}
 	return nil
 }
 
 func (gui *Gui) onResEnter(g *gocui.Gui, v *gocui.View) error {
-	gui.mu.Lock()
-	if len(gui.resources) == 0 {
-		gui.mu.Unlock()
+	if gui.resList.Len() == 0 {
 		return nil
 	}
 
 	_, cy := v.Cursor()
-	idx := cy
-
-	if idx >= 0 && idx < len(gui.resources) {
-		selectedRes := gui.resources[idx]
+	if selectedRes, ok := gui.resList.Get(cy); ok {
 		// Set selectedRes immediately so basic info shows while loading
+		gui.mu.Lock()
 		gui.selectedRes = selectedRes
 		gui.mu.Unlock()
 
@@ -718,8 +1040,6 @@ func (gui *Gui) onResEnter(g *gocui.Gui, v *gocui.View) error {
 		gui.mu.Unlock()
 		gui.updatePanelTitles()
 		gui.updateStatus()
-	} else {
-		gui.mu.Unlock()
 	}
 
 	return nil
@@ -1219,19 +1539,36 @@ func (gui *Gui) updateStatus() {
 	gui.statusView.Clear()
 	gui.mu.RLock()
 	activePanel := gui.activePanel
-	subCount := len(gui.subscriptions)
-	rgCount := len(gui.resourceGroups)
-	resCount := len(gui.resources)
 	gui.mu.RUnlock()
+
+	// Get filtered counts
+	subShowing, subTotal := gui.subList.GetFilterStats()
+	rgShowing, rgTotal := gui.rgList.GetFilterStats()
+	resShowing, resTotal := gui.resList.GetFilterStats()
 
 	var status string
 	switch activePanel {
 	case "subscriptions":
-		status = fmt.Sprintf("↑↓: Navigate | Enter: Load RGs | c: Copy Link | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subCount)
+		if gui.subList.IsFiltering() {
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load RGs | c: Copy | Tab: Switch | r: Refresh | q: Quit",
+				gui.subList.GetFilterText(), subShowing, subTotal)
+		} else {
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load RGs | c: Copy | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subTotal)
+		}
 	case "resourcegroups":
-		status = fmt.Sprintf("↑↓: Navigate | Enter: Load Resources | c: Copy Link | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgCount)
+		if gui.rgList.IsFiltering() {
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load Resources | c: Copy | Tab: Switch | r: Refresh | q: Quit",
+				gui.rgList.GetFilterText(), rgShowing, rgTotal)
+		} else {
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load Resources | c: Copy | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgTotal)
+		}
 	case "resources":
-		status = fmt.Sprintf("↑↓: Navigate | Enter: View Details | c: Copy Link | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resCount)
+		if gui.resList.IsFiltering() {
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: View Details | c: Copy | Tab: Switch | r: Refresh | q: Quit",
+				gui.resList.GetFilterText(), resShowing, resTotal)
+		} else {
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: View Details | c: Copy | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resTotal)
+		}
 	case "main":
 		status = fmt.Sprintf("↑/↓ or j/k: Scroll | PgUp/PgDn: Page | c: Copy Link | Tab: Back to List | []: Tabs | r: Refresh | q: Quit")
 	default:
@@ -1265,6 +1602,11 @@ func (gui *Gui) loadSubscriptions() {
 			gui.selectedSub = subs[0]
 		}
 		gui.mu.Unlock()
+
+		// Update filtered list
+		gui.subList.SetItems(subs, func(sub *domain.Subscription) string {
+			return formatWithGraySuffix(sub.DisplayString(), sub.GetDisplaySuffix())
+		})
 
 		gui.g.UpdateAsync(func(g *gocui.Gui) error {
 			gui.refreshSubscriptionsPanel()
@@ -1305,6 +1647,15 @@ func (gui *Gui) loadResourceGroups(subscriptionID string) {
 		gui.selectedRes = nil
 		gui.mu.Unlock()
 
+		// Update filtered list
+		gui.rgList.SetItems(rgs, func(rg *domain.ResourceGroup) string {
+			return formatWithGraySuffix(rg.DisplayString(), rg.GetDisplaySuffix())
+		})
+		// Clear resource list when switching subscriptions
+		gui.resList.SetItems([]*domain.Resource{}, func(res *domain.Resource) string {
+			return ""
+		})
+
 		gui.g.UpdateAsync(func(g *gocui.Gui) error {
 			gui.refreshResourceGroupsPanel()
 			gui.refreshResourcesPanel()
@@ -1341,6 +1692,11 @@ func (gui *Gui) loadResources(subscriptionID string, resourceGroupName string) {
 			gui.selectedRes = nil
 		}
 		gui.mu.Unlock()
+
+		// Update filtered list
+		gui.resList.SetItems(resources, func(res *domain.Resource) string {
+			return formatWithGraySuffix(res.DisplayString(), res.GetDisplaySuffix())
+		})
 
 		gui.g.UpdateAsync(func(g *gocui.Gui) error {
 			gui.refreshResourcesPanel()

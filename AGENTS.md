@@ -193,7 +193,29 @@ For programmatic TUI testing using tmux, see [docs/TUI_TESTING.md](docs/TUI_TEST
 
 #### Issue: Ctrl+C doesn't work
 **Cause**: Keybinding not registered for current view  
-**Fix**: Bind quit keys to ALL views ("", "subscriptions", "resourcegroups", "main")
+**Fix**: Bind quit keys to ALL views ("", "subscriptions", "resourcegroups", "main", "search")
+
+#### Issue: Search hangs when typing
+**Cause**: UI updates from keybinding handler without using UpdateAsync  
+**Fix**: Wrap all UI updates in `gui.g.UpdateAsync()` when triggered from callbacks
+
+#### Issue: Search causes deadlock
+**Cause**: Callback holding lock while triggering UI updates that need the same lock  
+**Fix**: Release lock before calling callbacks that may trigger UI updates:
+```go
+// ❌ WRONG: Holding lock during callback
+mu.Lock()
+defer mu.Unlock()
+updateView()
+onSearch(text)  // May trigger UI updates = DEADLOCK!
+
+// ✅ CORRECT: Release lock first
+mu.Lock()
+updateView()
+text := searchText  // Copy value
+mu.Unlock()
+onSearch(text)  // Safe - no lock held
+```
 
 ### 8. Build and Run
 
@@ -248,7 +270,10 @@ pkg/
 │   ├── gui_test.go          # GUI tests
 │   ├── interfaces.go        # Client interfaces for abstraction
 │   └── panels/
-│       └── filtered_list.go # Generic filtered list component
+│       ├── filtered_list.go      # Generic filtered list component
+│       ├── filtered_list_test.go # Filtered list tests
+│       ├── search_bar.go         # Search bar UI component
+│       └── search_bar_test.go    # Search bar tests
 ├── tasks/          # Async task management
 │   ├── tasks.go
 │   └── tasks_test.go        # Task manager tests
@@ -316,6 +341,54 @@ func (r *Resource) GetDisplaySuffix() string { return resources.GetResourceTypeD
 fmt.Fprintln(view, formatWithGraySuffix(res.DisplayString(), res.GetDisplaySuffix()))
 // Output: "my-vm (Virtual Machine)" with type in gray
 ```
+
+### Search Implementation
+
+The search feature uses a two-component architecture:
+
+#### 1. FilteredList (`pkg/gui/panels/filtered_list.go`)
+- Generic list with filtering capability using Go generics
+- Stores both items AND their display strings (what the user sees)
+- Case-insensitive substring matching on display strings
+- Thread-safe with RWMutex for concurrent access
+- Key methods:
+  - `SetItems(items, getDisplay)` - Initialize with display function
+  - `SetFilter(text)` - Apply filter
+  - `ClearFilter()` - Remove filter
+  - `GetFilteredDisplayStrings()` - Get filtered results for UI
+
+#### 2. SearchBar (`pkg/gui/panels/search_bar.go`)
+- UI component at bottom of screen for text input
+- Handles character input, backspace, Ctrl+U (clear), Ctrl+W (delete word)
+- Uses gocui Editor interface for key handling
+- Thread-safe with mutex protection
+- Triggers callback on every text change for real-time filtering
+
+#### Integration Pattern
+```go
+// In GUI setup
+subList := panels.NewFilteredList[*domain.Subscription]()
+searchBar := panels.NewSearchBar(g, onSearchChanged, onSearchCancel, onSearchConfirm)
+
+// When data loads
+subList.SetItems(subs, func(sub *domain.Subscription) string {
+    return formatWithGraySuffix(sub.DisplayString(), sub.GetDisplaySuffix())
+})
+
+// Display in panel
+for _, display := range subList.GetFilteredDisplayStrings() {
+    fmt.Fprintln(view, display)
+}
+```
+
+#### Search Keybindings
+- `/` - Activate search for current panel
+- `a-z`, `0-9`, special chars - Type in search
+- `Backspace` - Delete last character
+- `Ctrl+U` - Clear entire search
+- `Ctrl+W` - Delete last word
+- `Enter` - Confirm and exit search mode
+- `Escape` - Cancel and clear filter
 
 ### Resource Type Display Names
 
