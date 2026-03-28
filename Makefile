@@ -14,10 +14,6 @@ LDFLAGS := -X main.version=$(VERSION) \
 build:
 	go build -ldflags "$(LDFLAGS)" -o lazyazure .
 
-.PHONY: install
-install:
-	go install -ldflags "$(LDFLAGS)" .
-
 .PHONY: test
 test:
 	go test ./pkg/...
@@ -28,3 +24,18 @@ clean:
 
 .PHONY: all
 all: test build
+
+.PHONY: test-coverage
+test-coverage:
+	go test -cover ./pkg/...
+
+.PHONY: lint
+lint:
+	go vet ./...
+
+.PHONY: check
+check: fmt lint test
+
+.PHONY: fmt
+fmt:
+	gofmt -w .
