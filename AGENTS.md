@@ -157,9 +157,9 @@ az login  # Optional - only one of many auth methods
 **CRITICAL: Always add or update tests when making changes.**
 
 When implementing features or fixes:
-- **New domain models?** Add JSON serialization tests in `pkg/domain/`
-- **New Azure client methods?** Add client tests in `pkg/azure/`
-- **New GUI features?** Add tests in `pkg/gui/` if applicable and run the automated TUI testing with tmux
+- **New or changed domain models?** Add JSON serialization tests in `pkg/domain/`
+- **New or changed Azure client methods?** Add client tests in `pkg/azure/`
+- **New or changed GUI features?** Add tests in `pkg/gui/` if applicable and run the automated TUI testing with tmux
 - **Bug fixes?** Add a test that would have caught the bug
 
 Run tests frequently:
@@ -492,6 +492,8 @@ Before finishing a session or committing changes:
   - [ ] Any new patterns or conventions documented
 
 **Do not commit until all checklist items are verified!**
+
+Always use conventional commit style commit message headers (check latest commits if in doubt).
 
 ## Key Lessons from Development
 
