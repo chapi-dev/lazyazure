@@ -107,8 +107,10 @@ func checkUpdate() error {
 		return nil
 	}
 
-	// Compare versions
-	if release.TagName != version {
+	// Compare versions (normalize by stripping "v" prefix)
+	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	currentVersion := strings.TrimPrefix(version, "v")
+	if latestVersion != currentVersion {
 		fmt.Println()
 		fmt.Printf("Update available! You are running %s, latest is %s\n", version, release.TagName)
 		fmt.Println()

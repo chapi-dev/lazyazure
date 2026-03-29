@@ -2583,7 +2583,10 @@ func (gui *Gui) versionNeedsUpdate() bool {
 	if gui.latestVersion == "" || gui.versionInfo.Version == "dev" {
 		return false
 	}
-	return gui.latestVersion != gui.versionInfo.Version
+	// Normalize by stripping "v" prefix from both versions
+	latest := strings.TrimPrefix(gui.latestVersion, "v")
+	current := strings.TrimPrefix(gui.versionInfo.Version, "v")
+	return latest != current
 }
 
 // isDevelopmentBuild checks if this is a development/non-release build

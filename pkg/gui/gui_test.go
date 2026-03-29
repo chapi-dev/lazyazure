@@ -119,6 +119,31 @@ func TestVersionNeedsUpdate(t *testing.T) {
 			latestVer:   "",
 			needsUpdate: false,
 		},
+		// Bug fix test cases: version comparison should normalize "v" prefix
+		{
+			name:        "same version without v prefix in current",
+			currentVer:  "0.2.2",
+			latestVer:   "v0.2.2",
+			needsUpdate: false, // This was the bug - it returned true before the fix
+		},
+		{
+			name:        "same version without v prefix in latest",
+			currentVer:  "v0.2.2",
+			latestVer:   "0.2.2",
+			needsUpdate: false,
+		},
+		{
+			name:        "different versions without v prefix in current",
+			currentVer:  "0.2.2",
+			latestVer:   "v0.2.3",
+			needsUpdate: true,
+		},
+		{
+			name:        "both versions without v prefix",
+			currentVer:  "0.2.2",
+			latestVer:   "0.2.2",
+			needsUpdate: false,
+		},
 	}
 
 	for _, tt := range tests {
