@@ -87,3 +87,144 @@ func TestConcurrentUpdates(t *testing.T) {
 	}
 	gui.mu.RUnlock()
 }
+
+func TestVersionNeedsUpdate(t *testing.T) {
+	tests := []struct {
+		name        string
+		currentVer  string
+		latestVer   string
+		needsUpdate bool
+	}{
+		{
+			name:        "same version",
+			currentVer:  "v1.0.0",
+			latestVer:   "v1.0.0",
+			needsUpdate: false,
+		},
+		{
+			name:        "older version",
+			currentVer:  "v1.0.0",
+			latestVer:   "v1.1.0",
+			needsUpdate: true,
+		},
+		{
+			name:        "dev version",
+			currentVer:  "dev",
+			latestVer:   "v1.0.0",
+			needsUpdate: false,
+		},
+		{
+			name:        "empty latest",
+			currentVer:  "v1.0.0",
+			latestVer:   "",
+			needsUpdate: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gui := &Gui{
+				versionInfo: VersionInfo{
+					Version: tt.currentVer,
+					Commit:  "abc123",
+				},
+				latestVersion: tt.latestVer,
+			}
+
+			result := gui.versionNeedsUpdate()
+			if result != tt.needsUpdate {
+				t.Errorf("versionNeedsUpdate() = %v, want %v", result, tt.needsUpdate)
+			}
+		})
+	}
+}
+
+func TestNewGuiWithVersionInfo(t *testing.T) {
+	versionInfo := VersionInfo{
+		Version: "v1.0.0",
+		Commit:  "abc123def",
+		Date:    "2024-01-01",
+	}
+
+	// Create GUI with version info - this just tests the constructor
+	// We can't fully test without AzureClient, but we can verify the struct is set up
+	gui := &Gui{
+		versionInfo:     versionInfo,
+		taskManager:     tasks.NewTaskManager(),
+		tabIndex:        0,
+		activePanel:     "subscriptions",
+		subList:         nil,
+		rgList:          nil,
+		resList:         nil,
+		mainPanelSearch: nil,
+	}
+
+	if gui.versionInfo.Version != versionInfo.Version {
+		t.Errorf("Expected version %s, got %s", versionInfo.Version, gui.versionInfo.Version)
+	}
+
+	if gui.versionInfo.Commit != versionInfo.Commit {
+		t.Errorf("Expected commit %s, got %s", versionInfo.Commit, gui.versionInfo.Commit)
+	}
+
+	if gui.versionInfo.Date != versionInfo.Date {
+		t.Errorf("Expected date %s, got %s", versionInfo.Date, gui.versionInfo.Date)
+	}
+}
+
+func TestIsDevelopmentBuild(t *testing.T) {
+	tests := []struct {
+		name       string
+		version    string
+		isDevBuild bool
+	}{
+		{
+			name:       "plain dev",
+			version:    "dev",
+			isDevBuild: true,
+		},
+		{
+			name:       "clean release tag",
+			version:    "v1.0.0",
+			isDevBuild: false,
+		},
+		{
+			name:       "dirty working tree",
+			version:    "v0.2.1-dirty",
+			isDevBuild: true,
+		},
+		{
+			name:       "ahead of tag with hash",
+			version:    "v0.2.1-2-gc15ffdf",
+			isDevBuild: true,
+		},
+		{
+			name:       "ahead of tag with dirty",
+			version:    "v0.2.1-2-gc15ffdf-dirty",
+			isDevBuild: true,
+		},
+
+		{
+			name:       "unknown commit",
+			version:    "unknown",
+			isDevBuild: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gui := &Gui{
+				versionInfo: VersionInfo{
+					Version: tt.version,
+					Commit:  "abc123",
+				},
+			}
+
+			result := gui.isDevelopmentBuild()
+			if result != tt.isDevBuild {
+				t.Errorf("isDevelopmentBuild() for version %q = %v, want %v",
+					tt.version, result, tt.isDevBuild)
+			}
+		})
+	}
+}

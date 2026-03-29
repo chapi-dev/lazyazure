@@ -82,6 +82,19 @@ lazyazure version
 lazyazure -v
 ```
 
+### Check for Updates
+
+```bash
+lazyazure --check-update
+```
+
+Checks the latest release on GitHub and compares with your current version. Exit codes:
+- `0`: Up to date or development build
+- `1`: Update available
+- `2`: Error checking for updates
+
+Note: Development builds (e.g., `dev`, `-dirty`, or commits ahead of a tag) skip version comparison but still show the latest available version.
+
 ## Usage
 
 ### Quick Start
@@ -151,6 +164,7 @@ See other methods under [authentication](#Authentication).
 - **q** or **Ctrl+C**: Quit
 - **c**: Copy portal link to clipboard
 - **o**: Open portal link in browser
+- **?**: Show version information and check for updates (auto-dismisses after 5 seconds or press Escape)
 
 ## Authentication
 

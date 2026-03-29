@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +21,13 @@ import (
 	"github.com/matsest/lazyazure/pkg/tasks"
 	"github.com/matsest/lazyazure/pkg/utils"
 )
+
+// VersionInfo holds version information
+type VersionInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
 
 // ANSI color code for gray text (256-color palette)
 const grayColor = "\x1b[38;5;245m"
@@ -78,11 +87,18 @@ type Gui struct {
 	searchTarget    string // "list" or "main" - tracks which search mode is active
 	mainPanelSearch *panels.MainPanelSearch
 
+	// Version info
+	versionInfo         VersionInfo
+	latestVersion       string
+	versionCheckPending bool
+	showingVersion      bool
+	versionTimer        *time.Timer
+
 	mu sync.RWMutex
 }
 
 // NewGui creates a new GUI instance
-func NewGui(azureClient AzureClient, clientFactory AzureClientFactory) (*Gui, error) {
+func NewGui(azureClient AzureClient, clientFactory AzureClientFactory, versionInfo VersionInfo) (*Gui, error) {
 	return &Gui{
 		azureClient:     azureClient,
 		clientFactory:   clientFactory,
@@ -93,6 +109,7 @@ func NewGui(azureClient AzureClient, clientFactory AzureClientFactory) (*Gui, er
 		rgList:          panels.NewFilteredList[*domain.ResourceGroup](),
 		resList:         panels.NewFilteredList[*domain.Resource](),
 		mainPanelSearch: panels.NewMainPanelSearch(),
+		versionInfo:     versionInfo,
 	}, nil
 }
 
@@ -310,6 +327,15 @@ func (gui *Gui) setupKeybindings() error {
 		}
 	}
 	utils.Log("setupKeybindings: Quit keybindings set")
+
+	// '?' to show version info - works in all views except search
+	versionKeys := []string{"", "subscriptions", "resourcegroups", "resources", "main"}
+	for _, view := range versionKeys {
+		if err := gui.g.SetKeybinding(view, '?', gocui.ModNone, gui.showVersionInfo); err != nil {
+			return err
+		}
+	}
+	utils.Log("setupKeybindings: Version keybinding set")
 
 	// Mouse click to focus panels (list panels)
 	panels := []string{"subscriptions", "resourcegroups", "resources"}
@@ -707,6 +733,16 @@ func (gui *Gui) onSearchEscape(g *gocui.Gui, v *gocui.View) error {
 func (gui *Gui) onSearchEscapeUnified(g *gocui.Gui, v *gocui.View) error {
 	utils.Log("onSearchEscapeUnified: Escape pressed, searchTarget=%s", gui.searchTarget)
 
+	gui.mu.RLock()
+	showingVersion := gui.showingVersion
+	gui.mu.RUnlock()
+
+	// First check if we're showing version info - if so, clear it
+	if showingVersion {
+		gui.clearVersionDisplay()
+		return nil
+	}
+
 	if gui.searchTarget == "main" {
 		// Main panel search mode
 		if gui.searchBar != nil {
@@ -845,6 +881,16 @@ func (gui *Gui) onMainPanelSearchNext(g *gocui.Gui, v *gocui.View) error {
 
 // onMainPanelClearSearch clears the main panel search when pressed in main view
 func (gui *Gui) onMainPanelClearSearch(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	showingVersion := gui.showingVersion
+	gui.mu.RUnlock()
+
+	// First check if we're showing version info - if so, clear it
+	if showingVersion {
+		gui.clearVersionDisplay()
+		return nil
+	}
+
 	if gui.mainPanelSearch != nil && gui.mainPanelSearch.IsActive() {
 		utils.Log("onMainPanelClearSearch: Clearing main panel search from main view")
 		gui.clearMainPanelSearch()
@@ -1070,7 +1116,14 @@ func (gui *Gui) onSearchConfirm() {
 func (gui *Gui) clearFilter(g *gocui.Gui, v *gocui.View) error {
 	gui.mu.RLock()
 	activePanel := gui.activePanel
+	showingVersion := gui.showingVersion
 	gui.mu.RUnlock()
+
+	// First check if we're showing version info - if so, clear it
+	if showingVersion {
+		gui.clearVersionDisplay()
+		return nil
+	}
 
 	switch activePanel {
 	case "subscriptions":
@@ -2172,7 +2225,14 @@ func (gui *Gui) updateStatus() {
 	gui.statusView.Clear()
 	gui.mu.RLock()
 	activePanel := gui.activePanel
+	showingVersion := gui.showingVersion
 	gui.mu.RUnlock()
+
+	// If showing version info, display that instead
+	if showingVersion {
+		gui.renderVersionStatus()
+		return
+	}
 
 	// Get filtered counts
 	subShowing, subTotal := gui.subList.GetFilterStats()
@@ -2395,4 +2455,204 @@ func (gui *Gui) loadResourceDetails(originalRes *domain.Resource) {
 			return nil
 		})
 	}()
+}
+
+// GitHubRelease represents a GitHub release API response
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+}
+
+// showVersionInfo displays version information and checks for updates
+func (gui *Gui) showVersionInfo(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.Lock()
+	defer gui.mu.Unlock()
+
+	// Cancel any existing timer
+	if gui.versionTimer != nil {
+		gui.versionTimer.Stop()
+	}
+
+	gui.showingVersion = true
+
+	// Check if we already have the latest version cached
+	if gui.latestVersion == "" && !gui.versionCheckPending {
+		gui.versionCheckPending = true
+		go gui.checkLatestVersion()
+	}
+
+	// Update status immediately
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		gui.updateStatus()
+		return nil
+	})
+
+	// Start auto-revert timer (5 seconds)
+	gui.versionTimer = time.AfterFunc(5*time.Second, func() {
+		gui.g.UpdateAsync(func(g *gocui.Gui) error {
+			gui.clearVersionDisplay()
+			return nil
+		})
+	})
+
+	return nil
+}
+
+// clearVersionDisplay reverts the status bar to normal
+func (gui *Gui) clearVersionDisplay() {
+	gui.mu.Lock()
+	if gui.versionTimer != nil {
+		gui.versionTimer.Stop()
+		gui.versionTimer = nil
+	}
+	gui.showingVersion = false
+	gui.mu.Unlock()
+
+	gui.updateStatus()
+}
+
+// checkLatestVersion fetches the latest release from GitHub
+func (gui *Gui) checkLatestVersion() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/matsest/lazyazure/releases/latest", nil)
+	if err != nil {
+		utils.Log("checkLatestVersion: Failed to create request: %v", err)
+		gui.versionCheckComplete("")
+		return
+	}
+
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "lazyazure")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		utils.Log("checkLatestVersion: Failed to fetch release: %v", err)
+		gui.versionCheckComplete("")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		utils.Log("checkLatestVersion: GitHub API returned status %d", resp.StatusCode)
+		gui.versionCheckComplete("")
+		return
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		utils.Log("checkLatestVersion: Failed to read response: %v", err)
+		gui.versionCheckComplete("")
+		return
+	}
+
+	var release GitHubRelease
+	if err := json.Unmarshal(body, &release); err != nil {
+		utils.Log("checkLatestVersion: Failed to parse response: %v", err)
+		gui.versionCheckComplete("")
+		return
+	}
+
+	gui.versionCheckComplete(release.TagName)
+}
+
+// versionCheckComplete updates the GUI after version check completes
+func (gui *Gui) versionCheckComplete(latestVersion string) {
+	gui.mu.Lock()
+	gui.latestVersion = latestVersion
+	gui.versionCheckPending = false
+	gui.mu.Unlock()
+
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		gui.mu.RLock()
+		showingVersion := gui.showingVersion
+		gui.mu.RUnlock()
+
+		if showingVersion {
+			gui.updateStatus()
+		}
+		return nil
+	})
+}
+
+// versionNeedsUpdate checks if current version is older than latest
+func (gui *Gui) versionNeedsUpdate() bool {
+	// Simple string comparison - assumes versions are in format vX.Y.Z
+	// This is a basic check; for production, use semver comparison
+	if gui.latestVersion == "" || gui.versionInfo.Version == "dev" {
+		return false
+	}
+	return gui.latestVersion != gui.versionInfo.Version
+}
+
+// isDevelopmentBuild checks if this is a development/non-release build
+func (gui *Gui) isDevelopmentBuild() bool {
+	version := gui.versionInfo.Version
+	// "dev" is the default for plain go build
+	if version == "dev" {
+		return true
+	}
+	// Check for git describe indicators of dev builds:
+	// - "dirty" = uncommitted changes
+	// - "-g" or "-g[hex]" = commit hash (git describe format)
+	// - distance from tag (e.g., "-2-gc15ffdf")
+	if strings.Contains(version, "dirty") {
+		return true
+	}
+	if strings.Contains(version, "-") {
+		// Check if it contains a commit hash pattern (-g[hex])
+		// This handles cases like v0.2.1-2-gc15ffdf
+		parts := strings.Split(version, "-")
+		for i, part := range parts {
+			// Skip the first part (the tag version like "v0.2.1")
+			if i == 0 {
+				continue
+			}
+			// Check for git hash pattern: starts with 'g' followed by hex chars
+			if len(part) > 1 && part[0] == 'g' {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// renderVersionStatus renders version information in the status bar
+func (gui *Gui) renderVersionStatus() {
+	gui.mu.RLock()
+	version := gui.versionInfo.Version
+	commit := gui.versionInfo.Commit
+	latestVersion := gui.latestVersion
+	checkPending := gui.versionCheckPending
+	gui.mu.RUnlock()
+
+	// Shorten commit for display
+	displayCommit := commit
+	if len(displayCommit) > 7 {
+		displayCommit = displayCommit[:7]
+	}
+
+	// Handle development builds specially
+	if gui.isDevelopmentBuild() {
+		if checkPending {
+			fmt.Fprintf(gui.statusView, "lazyazure %s (%s) - Checking for updates... | Esc: Dismiss", version, displayCommit)
+		} else {
+			fmt.Fprintf(gui.statusView, "lazyazure %s (%s) - Development build | Esc: Dismiss", version, displayCommit)
+		}
+		return
+	}
+
+	var status string
+	if checkPending {
+		status = fmt.Sprintf("lazyazure %s (%s) - Checking for updates... | Esc: Dismiss", version, displayCommit)
+	} else if latestVersion == "" {
+		status = fmt.Sprintf("lazyazure %s (%s) - Update check failed | Esc: Dismiss", version, displayCommit)
+	} else if gui.versionNeedsUpdate() {
+		status = fmt.Sprintf("lazyazure %s (%s) - Update available: %s | Esc: Dismiss", version, displayCommit, latestVersion)
+	} else {
+		status = fmt.Sprintf("lazyazure %s (%s) - Up to date | Esc: Dismiss", version, displayCommit)
+	}
+
+	fmt.Fprint(gui.statusView, status)
 }

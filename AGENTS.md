@@ -255,6 +255,10 @@ onSearch(text)  // Safe - no lock held
 
 ```bash
 # Build
+# with version information (default)
+make build
+
+# without version information
 go build .
 
 # Run
