@@ -1276,6 +1276,10 @@ func (gui *Gui) refreshSubscriptionsPanel() {
 	for _, display := range displayStrings {
 		fmt.Fprintln(gui.subscriptionsView, display)
 	}
+
+	// Reset cursor and origin to top after refresh (e.g., after filtering)
+	gui.subscriptionsView.SetOrigin(0, 0)
+	gui.subscriptionsView.SetCursor(0, 0)
 }
 
 func (gui *Gui) refreshResourceGroupsPanel() {
@@ -1289,6 +1293,10 @@ func (gui *Gui) refreshResourceGroupsPanel() {
 	for _, display := range displayStrings {
 		fmt.Fprintln(gui.resourceGroupsView, display)
 	}
+
+	// Reset cursor and origin to top after refresh (e.g., after filtering)
+	gui.resourceGroupsView.SetOrigin(0, 0)
+	gui.resourceGroupsView.SetCursor(0, 0)
 }
 
 func (gui *Gui) refreshResourcesPanel() {
@@ -1302,6 +1310,10 @@ func (gui *Gui) refreshResourcesPanel() {
 	for _, display := range displayStrings {
 		fmt.Fprintln(gui.resourcesView, display)
 	}
+
+	// Reset cursor and origin to top after refresh (e.g., after filtering)
+	gui.resourcesView.SetOrigin(0, 0)
+	gui.resourcesView.SetCursor(0, 0)
 }
 
 // Placeholder implementations for the rest
