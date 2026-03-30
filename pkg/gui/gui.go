@@ -2310,8 +2310,9 @@ func (gui *Gui) buildResourceSummaryLines(res *domain.Resource, showHint bool) [
 	lines = append(lines, fmt.Sprintf("%sName:%s %s", colorBoldKey, colorReset, res.Name))
 	lines = append(lines, fmt.Sprintf("%sType:%s %s", colorBoldKey, colorReset, res.Type))
 	lines = append(lines, fmt.Sprintf("%sLocation:%s %s", colorBoldKey, colorReset, res.Location))
-	lines = append(lines, fmt.Sprintf("%sID:%s %s", colorBoldKey, colorReset, res.ID))
+	lines = append(lines, fmt.Sprintf("%sSubscription:%s %s", colorBoldKey, colorReset, gui.getSubscriptionNameByID(res.SubscriptionID)))
 	lines = append(lines, fmt.Sprintf("%sResource Group:%s %s", colorBoldKey, colorReset, res.ResourceGroup))
+	lines = append(lines, fmt.Sprintf("%sID:%s %s", colorBoldKey, colorReset, res.ID))
 	if res.CreatedTime != "" {
 		lines = append(lines, fmt.Sprintf("%sCreated:%s %s", colorBoldKey, colorReset, res.CreatedTime))
 	}
@@ -2368,12 +2369,25 @@ func (gui *Gui) buildResourceJSONLines(res *domain.Resource, showHint bool) []st
 	return lines
 }
 
+// getSubscriptionNameByID looks up a subscription name by its ID
+func (gui *Gui) getSubscriptionNameByID(subID string) string {
+	gui.mu.RLock()
+	defer gui.mu.RUnlock()
+
+	for _, sub := range gui.subList.GetItems() {
+		if sub.ID == subID {
+			return sub.Name
+		}
+	}
+	return subID // Fallback to ID if not found
+}
+
 // buildRGSummaryLines builds the summary view lines for a resource group
 func (gui *Gui) buildRGSummaryLines(rg *domain.ResourceGroup) []string {
 	var lines []string
 	lines = append(lines, fmt.Sprintf("%sName:%s %s", colorBoldKey, colorReset, rg.Name))
 	lines = append(lines, fmt.Sprintf("%sLocation:%s %s", colorBoldKey, colorReset, rg.Location))
-	lines = append(lines, fmt.Sprintf("%sSubscription ID:%s %s", colorBoldKey, colorReset, rg.SubscriptionID))
+	lines = append(lines, fmt.Sprintf("%sSubscription:%s %s", colorBoldKey, colorReset, gui.getSubscriptionNameByID(rg.SubscriptionID)))
 	lines = append(lines, fmt.Sprintf("%sID:%s %s", colorBoldKey, colorReset, rg.ID))
 	lines = append(lines, fmt.Sprintf("%sProvisioning State:%s %s", colorBoldKey, colorReset, rg.ProvisioningState))
 	if len(rg.Tags) > 0 {
