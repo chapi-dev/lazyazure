@@ -1,6 +1,7 @@
 package azure
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -23,8 +24,10 @@ func TestLoadCuratedAPIVersions(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.resourceType, func(t *testing.T) {
+			// Use lowercase key for lookup (cache stores normalized lowercase keys)
+			lookupKey := strings.ToLower(tc.resourceType)
 			globalAPICacheMux.RLock()
-			versions, exists := globalAPICache[tc.resourceType]
+			versions, exists := globalAPICache[lookupKey]
 			globalAPICacheMux.RUnlock()
 
 			if tc.shouldExist {

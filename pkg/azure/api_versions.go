@@ -42,11 +42,11 @@ func loadCuratedAPIVersions() {
 		return
 	}
 
-	// Populate global cache with curated versions
+	// Populate global cache with curated versions (normalized to lowercase)
 	globalAPICacheMux.Lock()
 	for resourceType, version := range curated.APIVersions {
-		// Store as single-item slice (format expected by cache)
-		globalAPICache[resourceType] = []string{version}
+		// Store as single-item slice with lowercase key for case-insensitive lookup
+		globalAPICache[strings.ToLower(resourceType)] = []string{version}
 	}
 	globalAPICacheMux.Unlock()
 
@@ -91,9 +91,10 @@ func (c *APIVersionCache) GetLatestAPIVersion(ctx context.Context, resourceType 
 	providerNamespace := parts[0]
 	typeName := parts[1]
 
-	// Check cache first (thread-safe read)
+	// Check cache first (thread-safe read) - use lowercase for case-insensitive lookup
+	resourceTypeLower := strings.ToLower(resourceType)
 	globalAPICacheMux.RLock()
-	if versions, ok := globalAPICache[resourceType]; ok && len(versions) > 0 {
+	if versions, ok := globalAPICache[resourceTypeLower]; ok && len(versions) > 0 {
 		globalAPICacheMux.RUnlock()
 		// Check if this was pre-loaded (curated) or fetched at runtime
 		version := versions[0]
@@ -119,7 +120,7 @@ func (c *APIVersionCache) GetLatestAPIVersion(ctx context.Context, resourceType 
 					versions[i] = *v
 				}
 				globalAPICacheMux.Lock()
-				globalAPICache[resourceType] = versions
+				globalAPICache[resourceTypeLower] = versions
 				globalAPICacheMux.Unlock()
 				// Return first (latest) version
 				return versions[0], nil
