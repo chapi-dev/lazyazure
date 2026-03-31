@@ -197,9 +197,11 @@ The following features are planned but not yet implemented:
 - Connection status indicator
 
 ### Performance
+- Background loading
 - UI-level pagination controls
 - Virtual scrolling for large lists
 - Optimistic updates
+- Add loading indicators
 
 ---
 
