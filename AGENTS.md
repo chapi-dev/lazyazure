@@ -203,7 +203,7 @@ When implementing features or fixes:
 
 Run tests frequently:
 ```bash
-go test ./pkg/...
+make test
 ```
 
 Key test files:
@@ -322,9 +322,6 @@ func (gui *Gui) clearVersionDisplay() {
 # with version information (default)
 make build
 
-# without version information
-go build .
-
 # Run
 ./lazyazure
 
@@ -344,7 +341,7 @@ LAZYAZURE_DEMO=2 ./lazyazure  # Large dataset: 15 subs, 20 RGs each, 15 resource
 ./lazyazure --check-update
 
 # Test
-go test ./pkg/...
+make test
 ```
 
 ### 9. File Organization
@@ -632,9 +629,9 @@ Copyright (c) <Year> <Author/Company>
 
 Before finishing a session or committing changes:
 
-- [ ] Code builds without errors: `go build .`
+- [ ] Code builds without errors: `make build`
 - [ ] Tests have been updated or added per the guideline in this file
-- [ ] Tests pass: `go test ./pkg/...`
+- [ ] Tests pass: `make test`
 - [ ] Code is properly formatted: `gofmt -l .` returns empty
 - [ ] Modules are tidy: `go mod tidy`
 - [ ] Debug logging is properly guarded with `LAZYAZURE_DEBUG` check
