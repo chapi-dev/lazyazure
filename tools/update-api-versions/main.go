@@ -262,10 +262,11 @@ func extractCuratedVersions(resources map[string]interface{}) map[string]string 
 		resourceType := parts[0]
 		apiVersion := parts[1]
 
-		// Check if this matches any curated pattern
+		// Check if this matches any curated pattern (case-insensitive)
+		resourceTypeLower := strings.ToLower(resourceType)
 		for _, pattern := range curatedPatterns {
-			if resourceType == pattern {
-				typeVersions[resourceType] = append(typeVersions[resourceType], apiVersion)
+			if resourceTypeLower == strings.ToLower(pattern) {
+				typeVersions[resourceTypeLower] = append(typeVersions[resourceTypeLower], apiVersion)
 				break
 			}
 		}
