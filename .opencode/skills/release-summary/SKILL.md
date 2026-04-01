@@ -14,7 +14,7 @@ The user will specify a release version (e.g., "v0.2.5" or "0.2.5"). You should:
 
 1. Identify the previous version tag
 2. Get all commits between the previous version and the specified version
-3. Generate a concise, user-facing summary
+3. Generate a concise, user-facing summary formatted as copyable markdown
 
 ## Steps
 
@@ -75,7 +75,7 @@ Create a concise summary with these sections:
 - Use technical jargon without explanation
 - Include every single commit (focus on important ones)
 
-### 6. Example Output
+### 6. Example Output (as markdown)
 
 For v0.2.5 (based on commits):
 ```markdown

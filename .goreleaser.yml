@@ -59,7 +59,7 @@ release:
   mode: keep-existing
   # Footer for the release notes
   footer: |
-    [Full Changelog](https://github.com/matsest/lazyazure/compare/{{ .PreviousTag }}...{{ .Tag }})
+    See the [full diff](https://github.com/matsest/lazyazure/compare/{{ .PreviousTag }}...{{ .Tag }}) between the new and previous version for more details.
 
     ## Installation
 
