@@ -1,0 +1,701 @@
+package gui
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/matsest/lazyazure/pkg/domain"
+)
+
+func TestNewPreloadCache(t *testing.T) {
+	cache := NewPreloadCache()
+
+	if cache == nil {
+		t.Fatal("NewPreloadCache returned nil")
+	}
+
+	if cache.rgLimit != maxRGCache {
+		t.Errorf("Expected rgLimit to be %d, got %d", maxRGCache, cache.rgLimit)
+	}
+
+	if cache.resLimit != maxResCache {
+		t.Errorf("Expected resLimit to be %d, got %d", maxResCache, cache.resLimit)
+	}
+
+	if cache.rgs == nil {
+		t.Error("RGs map not initialized")
+	}
+
+	if cache.res == nil {
+		t.Error("Resources map not initialized")
+	}
+}
+
+func TestPreloadCache_SetAndGetRGs(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-subscription-123"
+
+	// Test setting RGs
+	rgs := []*domain.ResourceGroup{
+		{Name: "rg1", Location: "eastus"},
+		{Name: "rg2", Location: "westus"},
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cache.SetRGs(subID, rgs, cancel)
+
+	// Test getting RGs
+	retrieved, ok := cache.GetRGs(subID)
+	if !ok {
+		t.Error("Expected to find cached RGs")
+	}
+
+	if len(retrieved) != len(rgs) {
+		t.Errorf("Expected %d RGs, got %d", len(rgs), len(retrieved))
+	}
+
+	// Test non-existent subscription
+	_, ok = cache.GetRGs("non-existent-sub")
+	if ok {
+		t.Error("Should not find RGs for non-existent subscription")
+	}
+}
+
+func TestPreloadCache_RGsExpiration(t *testing.T) {
+	// Create cache with very short TTL for testing
+	cache := NewPreloadCache()
+	subID := "test-subscription"
+
+	rgs := []*domain.ResourceGroup{{Name: "rg1"}}
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cache.SetRGs(subID, rgs, cancel)
+
+	// Should exist immediately
+	_, ok := cache.GetRGs(subID)
+	if !ok {
+		t.Error("RGs should exist immediately after setting")
+	}
+
+	// Manually expire the entry by setting timestamp to past
+	cache.mu.Lock()
+	cached := cache.rgs[subID]
+	cached.timestamp = time.Now().Add(-6 * time.Minute) // Expired (5min TTL)
+	cache.mu.Unlock()
+
+	// Should not exist after expiration
+	_, ok = cache.GetRGs(subID)
+	if ok {
+		t.Error("RGs should be expired after TTL")
+	}
+}
+
+func TestPreloadCache_SetAndGetRes(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-subscription"
+	rgName := "test-rg"
+
+	// Test setting resources
+	resources := []*domain.Resource{
+		{Name: "res1", Type: "Microsoft.Compute/virtualMachines"},
+		{Name: "res2", Type: "Microsoft.Storage/storageAccounts"},
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cache.SetRes(subID, rgName, resources, cancel)
+
+	// Test getting resources
+	retrieved, ok := cache.GetRes(subID, rgName)
+	if !ok {
+		t.Error("Expected to find cached resources")
+	}
+
+	if len(retrieved) != len(resources) {
+		t.Errorf("Expected %d resources, got %d", len(resources), len(retrieved))
+	}
+
+	// Test non-existent resource group
+	_, ok = cache.GetRes(subID, "non-existent-rg")
+	if ok {
+		t.Error("Should not find resources for non-existent RG")
+	}
+}
+
+func TestPreloadCache_ResExpiration(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-subscription"
+	rgName := "test-rg"
+
+	resources := []*domain.Resource{{Name: "res1"}}
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cache.SetRes(subID, rgName, resources, cancel)
+
+	// Should exist immediately
+	_, ok := cache.GetRes(subID, rgName)
+	if !ok {
+		t.Error("Resources should exist immediately after setting")
+	}
+
+	// Manually expire the entry
+	cache.mu.Lock()
+	key := subID + "/" + rgName
+	cached := cache.res[key]
+	cached.timestamp = time.Now().Add(-4 * time.Minute) // Expired (3min TTL)
+	cache.mu.Unlock()
+
+	// Should not exist after expiration
+	_, ok = cache.GetRes(subID, rgName)
+	if ok {
+		t.Error("Resources should be expired after TTL")
+	}
+}
+
+func TestPreloadCache_InvalidateSubs(t *testing.T) {
+	cache := NewPreloadCache()
+
+	// Set up some data
+	sub1ID := "sub-1"
+	sub2ID := "sub-2"
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cache.SetRGs(sub1ID, []*domain.ResourceGroup{{Name: "rg1"}}, cancel)
+	cache.SetRGs(sub2ID, []*domain.ResourceGroup{{Name: "rg2"}}, cancel)
+	cache.SetRes(sub1ID, "rg1", []*domain.Resource{{Name: "res1"}}, cancel)
+	cache.SetRes(sub2ID, "rg2", []*domain.Resource{{Name: "res2"}}, cancel)
+
+	// Invalidate all
+	cache.InvalidateSubs()
+
+	// All should be gone
+	if _, ok := cache.GetRGs(sub1ID); ok {
+		t.Error("sub1 RGs should be invalidated")
+	}
+	if _, ok := cache.GetRGs(sub2ID); ok {
+		t.Error("sub2 RGs should be invalidated")
+	}
+	if _, ok := cache.GetRes(sub1ID, "rg1"); ok {
+		t.Error("sub1 resources should be invalidated")
+	}
+	if _, ok := cache.GetRes(sub2ID, "rg2"); ok {
+		t.Error("sub2 resources should be invalidated")
+	}
+}
+
+func TestPreloadCache_InvalidateRGs(t *testing.T) {
+	cache := NewPreloadCache()
+	sub1ID := "sub-1"
+	sub2ID := "sub-2"
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up data for both subscriptions
+	cache.SetRGs(sub1ID, []*domain.ResourceGroup{{Name: "rg1"}}, cancel)
+	cache.SetRGs(sub2ID, []*domain.ResourceGroup{{Name: "rg2"}}, cancel)
+	cache.SetRes(sub1ID, "rg1", []*domain.Resource{{Name: "res1"}}, cancel)
+	cache.SetRes(sub2ID, "rg2", []*domain.Resource{{Name: "res2"}}, cancel)
+
+	// Invalidate only sub1's RGs
+	cache.InvalidateRGs(sub1ID)
+
+	// sub1 should be gone
+	if _, ok := cache.GetRGs(sub1ID); ok {
+		t.Error("sub1 RGs should be invalidated")
+	}
+	if _, ok := cache.GetRes(sub1ID, "rg1"); ok {
+		t.Error("sub1 resources should be invalidated")
+	}
+
+	// sub2 should still exist
+	if _, ok := cache.GetRGs(sub2ID); !ok {
+		t.Error("sub2 RGs should still exist")
+	}
+	if _, ok := cache.GetRes(sub2ID, "rg2"); !ok {
+		t.Error("sub2 resources should still exist")
+	}
+}
+
+func TestPreloadCache_InvalidateRes(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-sub"
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up data
+	cache.SetRGs(subID, []*domain.ResourceGroup{{Name: "rg1"}, {Name: "rg2"}}, cancel)
+	cache.SetRes(subID, "rg1", []*domain.Resource{{Name: "res1"}}, cancel)
+	cache.SetRes(subID, "rg2", []*domain.Resource{{Name: "res2"}}, cancel)
+
+	// Invalidate only rg1's resources
+	cache.InvalidateRes(subID, "rg1")
+
+	// RG1 resources should be gone
+	if _, ok := cache.GetRes(subID, "rg1"); ok {
+		t.Error("rg1 resources should be invalidated")
+	}
+
+	// RG2 resources should still exist
+	if _, ok := cache.GetRes(subID, "rg2"); !ok {
+		t.Error("rg2 resources should still exist")
+	}
+
+	// RGs should still exist
+	if _, ok := cache.GetRGs(subID); !ok {
+		t.Error("RGs should still exist")
+	}
+}
+
+func TestPreloadCache_EvictOldestRGs(t *testing.T) {
+	cache := NewPreloadCache()
+	cache.rgLimit = 4 // Small limit for testing
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Add 4 entries
+	for i := 0; i < 4; i++ {
+		subID := string(rune('a' + i))
+		cache.SetRGs(subID, []*domain.ResourceGroup{{Name: "rg"}}, cancel)
+		time.Sleep(10 * time.Millisecond) // Ensure different timestamps
+	}
+
+	// Add one more - should trigger eviction
+	cache.SetRGs("e", []*domain.ResourceGroup{{Name: "rg"}}, cancel)
+
+	// Should have evicted oldest 2 (50% of 4)
+	if _, ok := cache.GetRGs("a"); ok {
+		t.Error("Oldest entry 'a' should have been evicted")
+	}
+	if _, ok := cache.GetRGs("b"); ok {
+		t.Error("Second oldest entry 'b' should have been evicted")
+	}
+
+	// c, d, e should still exist
+	if _, ok := cache.GetRGs("c"); !ok {
+		t.Error("Entry 'c' should still exist")
+	}
+	if _, ok := cache.GetRGs("d"); !ok {
+		t.Error("Entry 'd' should still exist")
+	}
+	if _, ok := cache.GetRGs("e"); !ok {
+		t.Error("Entry 'e' should still exist")
+	}
+}
+
+func TestPreloadCache_EvictOldestRes(t *testing.T) {
+	cache := NewPreloadCache()
+	cache.resLimit = 4 // Small limit for testing
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Add 4 entries
+	for i := 0; i < 4; i++ {
+		rgName := string(rune('a' + i))
+		cache.SetRes("sub", rgName, []*domain.Resource{{Name: "res"}}, cancel)
+		time.Sleep(10 * time.Millisecond) // Ensure different timestamps
+	}
+
+	// Add one more - should trigger eviction
+	cache.SetRes("sub", "e", []*domain.Resource{{Name: "res"}}, cancel)
+
+	// Should have evicted oldest 2 (50% of 4)
+	if _, ok := cache.GetRes("sub", "a"); ok {
+		t.Error("Oldest entry 'a' should have been evicted")
+	}
+	if _, ok := cache.GetRes("sub", "b"); ok {
+		t.Error("Second oldest entry 'b' should have been evicted")
+	}
+
+	// c, d, e should still exist
+	if _, ok := cache.GetRes("sub", "c"); !ok {
+		t.Error("Entry 'c' should still exist")
+	}
+	if _, ok := cache.GetRes("sub", "d"); !ok {
+		t.Error("Entry 'd' should still exist")
+	}
+	if _, ok := cache.GetRes("sub", "e"); !ok {
+		t.Error("Entry 'e' should still exist")
+	}
+}
+
+func TestPreloadCache_CancelOnSet(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-sub"
+
+	// First cancel func
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	cache.SetRGs(subID, []*domain.ResourceGroup{{Name: "rg1"}}, cancel1)
+
+	// Second cancel func should cancel the first
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	cache.SetRGs(subID, []*domain.ResourceGroup{{Name: "rg2"}}, cancel2)
+
+	// First context should be cancelled
+	select {
+	case <-ctx1.Done():
+		// Good, it was cancelled
+	default:
+		t.Error("First context should have been cancelled")
+	}
+
+	// Second context should not be cancelled
+	select {
+	case <-ctx2.Done():
+		t.Error("Second context should not be cancelled yet")
+	default:
+		// Good, not cancelled
+	}
+
+	cancel2() // Clean up
+}
+
+func TestPreloadCache_GetCacheStats(t *testing.T) {
+	cache := NewPreloadCache()
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initially empty
+	rgCount, resCount, fullResCount := cache.GetCacheStats()
+	if rgCount != 0 || resCount != 0 || fullResCount != 0 {
+		t.Errorf("Expected empty cache, got %d RGs, %d resources, %d full resources", rgCount, resCount, fullResCount)
+	}
+
+	// Add some data
+	cache.SetRGs("sub1", []*domain.ResourceGroup{{Name: "rg1"}}, cancel)
+	cache.SetRGs("sub2", []*domain.ResourceGroup{{Name: "rg2"}}, cancel)
+	cache.SetRes("sub1", "rg1", []*domain.Resource{{Name: "res1"}}, cancel)
+
+	rgCount, resCount, fullResCount = cache.GetCacheStats()
+	if rgCount != 2 {
+		t.Errorf("Expected 2 RGs, got %d", rgCount)
+	}
+	if resCount != 1 {
+		t.Errorf("Expected 1 resource, got %d", resCount)
+	}
+	if fullResCount != 0 {
+		t.Errorf("Expected 0 full resources, got %d", fullResCount)
+	}
+}
+
+func TestPreloadCache_ConcurrentAccess(t *testing.T) {
+	cache := NewPreloadCache()
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Concurrent writes
+	done := make(chan bool)
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			subID := string(rune('a' + (id % 26)))
+			cache.SetRGs(subID, []*domain.ResourceGroup{{Name: "rg"}}, cancel)
+			done <- true
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			subID := string(rune('a' + (id % 26)))
+			cache.GetRGs(subID)
+			done <- true
+		}(i)
+	}
+
+	// Wait for all
+	for i := 0; i < 20; i++ {
+		<-done
+	}
+
+	// Should not have panicked
+	rgCount, _, _ := cache.GetCacheStats()
+	if rgCount > 26 {
+		t.Errorf("Expected at most 26 RGs, got %d", rgCount)
+	}
+}
+
+func TestPreloadCache_IsRGLoading(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-sub"
+
+	// Initially not loading
+	if cache.IsRGLoading(subID) {
+		t.Error("Should not be loading initially")
+	}
+
+	// Set loading
+	cache.SetRGLoading(subID, true)
+	if !cache.IsRGLoading(subID) {
+		t.Error("Should be loading after SetRGLoading(true)")
+	}
+
+	// Clear loading
+	cache.SetRGLoading(subID, false)
+	if cache.IsRGLoading(subID) {
+		t.Error("Should not be loading after SetRGLoading(false)")
+	}
+}
+
+func TestPreloadCache_IsResLoading(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-sub"
+	rgName := "test-rg"
+
+	// Initially not loading
+	if cache.IsResLoading(subID, rgName) {
+		t.Error("Should not be loading initially")
+	}
+
+	// Set loading
+	cache.SetResLoading(subID, rgName, true)
+	if !cache.IsResLoading(subID, rgName) {
+		t.Error("Should be loading after SetResLoading(true)")
+	}
+
+	// Clear loading
+	cache.SetResLoading(subID, rgName, false)
+	if cache.IsResLoading(subID, rgName) {
+		t.Error("Should not be loading after SetResLoading(false)")
+	}
+}
+
+func TestPreloadCache_ClearLoadingOnSet(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-sub"
+	rgName := "test-rg"
+
+	// Set loading flags
+	cache.SetRGLoading(subID, true)
+	cache.SetResLoading(subID, rgName, true)
+
+	// Verify loading
+	if !cache.IsRGLoading(subID) {
+		t.Error("RG should be loading")
+	}
+	if !cache.IsResLoading(subID, rgName) {
+		t.Error("Res should be loading")
+	}
+
+	// Set data in cache (should clear loading flags)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cache.SetRGs(subID, []*domain.ResourceGroup{{Name: "rg"}}, cancel)
+	cache.SetRes(subID, rgName, []*domain.Resource{{Name: "res"}}, cancel)
+
+	// Verify loading flags cleared
+	if cache.IsRGLoading(subID) {
+		t.Error("RG loading flag should be cleared after SetRGs")
+	}
+	if cache.IsResLoading(subID, rgName) {
+		t.Error("Res loading flag should be cleared after SetRes")
+	}
+}
+
+func TestPreloadCache_ClearLoadingOnInvalidate(t *testing.T) {
+	cache := NewPreloadCache()
+	subID := "test-sub"
+	rgName := "test-rg"
+
+	// Set loading flags
+	cache.SetRGLoading(subID, true)
+	cache.SetResLoading(subID, rgName, true)
+
+	// InvalidateRes should clear res loading
+	cache.InvalidateRes(subID, rgName)
+	if cache.IsResLoading(subID, rgName) {
+		t.Error("Res loading flag should be cleared after InvalidateRes")
+	}
+	// RG loading should still be set
+	if !cache.IsRGLoading(subID) {
+		t.Error("RG loading flag should still be set after InvalidateRes")
+	}
+
+	// Reset and test InvalidateRGs
+	cache.SetResLoading(subID, rgName, true)
+	cache.InvalidateRGs(subID)
+	if cache.IsRGLoading(subID) {
+		t.Error("RG loading flag should be cleared after InvalidateRGs")
+	}
+	if cache.IsResLoading(subID, rgName) {
+		t.Error("Res loading flag should be cleared after InvalidateRGs")
+	}
+
+	// Reset and test InvalidateSubs
+	cache.SetRGLoading(subID, true)
+	cache.SetResLoading(subID, rgName, true)
+	cache.InvalidateSubs()
+	if cache.IsRGLoading(subID) {
+		t.Error("RG loading flag should be cleared after InvalidateSubs")
+	}
+	if cache.IsResLoading(subID, rgName) {
+		t.Error("Res loading flag should be cleared after InvalidateSubs")
+	}
+}
+
+func TestPreloadCache_FullResourceCache(t *testing.T) {
+	cache := NewPreloadCache()
+	resID := "/subscriptions/sub-123/resourceGroups/rg-456/providers/Microsoft.Compute/virtualMachines/vm-1"
+
+	// Initially not found
+	if _, ok := cache.GetFullRes(resID); ok {
+		t.Error("Should not find uncached full resource")
+	}
+
+	// Set cache
+	resource := &domain.Resource{
+		ID:   resID,
+		Name: "vm-1",
+		Type: "Microsoft.Compute/virtualMachines",
+	}
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cache.SetFullRes(resID, resource, cancel)
+
+	// Should be found
+	cached, ok := cache.GetFullRes(resID)
+	if !ok {
+		t.Error("Should find cached full resource")
+	}
+	if cached.Name != "vm-1" {
+		t.Errorf("Expected name 'vm-1', got '%s'", cached.Name)
+	}
+}
+
+func TestPreloadCache_FullResourceExpiration(t *testing.T) {
+	cache := NewPreloadCache()
+	resID := "test-resource-id"
+
+	resource := &domain.Resource{Name: "test"}
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cache.SetFullRes(resID, resource, cancel)
+
+	// Should exist immediately
+	if _, ok := cache.GetFullRes(resID); !ok {
+		t.Error("Full resource should exist immediately after setting")
+	}
+
+	// Manually expire the entry
+	cache.mu.Lock()
+	cached := cache.fullRes[resID]
+	cached.timestamp = time.Now().Add(-4 * time.Minute) // Expired (3min TTL)
+	cache.mu.Unlock()
+
+	// Should not exist after expiration
+	if _, ok := cache.GetFullRes(resID); ok {
+		t.Error("Full resource should be expired after TTL")
+	}
+}
+
+func TestPreloadCache_FullResourceLoading(t *testing.T) {
+	cache := NewPreloadCache()
+	resID := "test-resource-id"
+
+	// Initially not loading
+	if cache.IsFullResLoading(resID) {
+		t.Error("Should not be loading initially")
+	}
+
+	// Set loading
+	cache.SetFullResLoading(resID, true)
+	if !cache.IsFullResLoading(resID) {
+		t.Error("Should be loading after SetFullResLoading(true)")
+	}
+
+	// Clear loading
+	cache.SetFullResLoading(resID, false)
+	if cache.IsFullResLoading(resID) {
+		t.Error("Should not be loading after SetFullResLoading(false)")
+	}
+}
+
+func TestPreloadCache_FullResourceClearOnSet(t *testing.T) {
+	cache := NewPreloadCache()
+	resID := "test-resource-id"
+
+	// Set loading flag
+	cache.SetFullResLoading(resID, true)
+	if !cache.IsFullResLoading(resID) {
+		t.Error("Should be loading")
+	}
+
+	// Set data in cache (should clear loading flag)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cache.SetFullRes(resID, &domain.Resource{Name: "test"}, cancel)
+
+	// Loading flag should be cleared
+	if cache.IsFullResLoading(resID) {
+		t.Error("Loading flag should be cleared after SetFullRes")
+	}
+}
+
+func TestPreloadCache_FullResourceInvalidateSubs(t *testing.T) {
+	cache := NewPreloadCache()
+	resID := "test-resource-id"
+
+	// Set cache first (this clears loading flag)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cache.SetFullRes(resID, &domain.Resource{Name: "test"}, cancel)
+
+	// Then set loading flag for another resource
+	cache.SetFullResLoading("other-res", true)
+
+	// Verify cache exists
+	if _, ok := cache.GetFullRes(resID); !ok {
+		t.Error("Should be cached")
+	}
+
+	// Verify loading flag exists for other resource
+	if !cache.IsFullResLoading("other-res") {
+		t.Error("Other resource should be loading")
+	}
+
+	// Invalidate all
+	cache.InvalidateSubs()
+
+	// Both should be cleared
+	if cache.IsFullResLoading("other-res") {
+		t.Error("Loading flag should be cleared after InvalidateSubs")
+	}
+	if _, ok := cache.GetFullRes(resID); ok {
+		t.Error("Cache should be cleared after InvalidateSubs")
+	}
+}
+
+func TestPreloadCache_FullResourceCacheStats(t *testing.T) {
+	cache := NewPreloadCache()
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initially empty
+	_, _, fullResCount := cache.GetCacheStats()
+	if fullResCount != 0 {
+		t.Errorf("Expected 0 full resources, got %d", fullResCount)
+	}
+
+	// Add full resource
+	cache.SetFullRes("res1", &domain.Resource{Name: "test1"}, cancel)
+	cache.SetFullRes("res2", &domain.Resource{Name: "test2"}, cancel)
+
+	_, _, fullResCount = cache.GetCacheStats()
+	if fullResCount != 2 {
+		t.Errorf("Expected 2 full resources, got %d", fullResCount)
+	}
+}

@@ -30,6 +30,7 @@ A TUI application for viewing Azure resources, inspired by [lazydocker](https://
 - **Open portal link**: Open portal link to subscription, resource group or resource in browser
 - **Copy portal link**: Copy link to subscription, resource group or resource to clipboard
 - **Smart Resource Loading**: Fetches full resource details with provider-specific API versions
+- **Intelligent Caching**: Background preloading and multi-tier caching for instant navigation between previously viewed resources
 - **Real-time Updates**: Refresh data without restarting the application
 
 See [PLAN.md](./PLAN.md) for implementation details and roadmap.

@@ -138,6 +138,9 @@ type Gui struct {
 	// Track which panel triggered refresh for better loading messages
 	refreshTriggeredBy string
 
+	// Background preloading cache
+	preloadCache *PreloadCache
+
 	mu sync.RWMutex
 }
 
@@ -154,6 +157,7 @@ func NewGui(azureClient AzureClient, clientFactory AzureClientFactory, versionIn
 		resList:         panels.NewFilteredList[*domain.Resource](),
 		mainPanelSearch: panels.NewMainPanelSearch(),
 		versionInfo:     versionInfo,
+		preloadCache:    NewPreloadCache(),
 	}, nil
 }
 
@@ -1725,8 +1729,14 @@ func (gui *Gui) onSubEnter(g *gocui.Gui, v *gocui.View) error {
 		subID := sub.ID
 		gui.mu.Unlock()
 
-		// Load resource groups for this subscription
-		gui.loadResourceGroups(subID)
+		// Check if resource groups are already cached
+		if rgs, ok := gui.preloadCache.GetRGs(subID); ok {
+			utils.Log("onSubEnter: Using cached resource groups (%d RGs)", len(rgs))
+			gui.useCachedResourceGroups(subID, rgs)
+		} else {
+			// Load resource groups normally
+			gui.loadResourceGroups(subID)
+		}
 
 		// Switch focus to resource groups panel
 		gui.g.SetCurrentView("resourcegroups")
@@ -1754,8 +1764,14 @@ func (gui *Gui) onRGEnter(g *gocui.Gui, v *gocui.View) error {
 		subID := gui.selectedSub.ID
 		gui.mu.Unlock()
 
-		// Load resources for this resource group
-		gui.loadResources(subID, rgName)
+		// Check if resources are already cached for this resource group
+		if resources, ok := gui.preloadCache.GetRes(subID, rgName); ok {
+			utils.Log("onRGEnter: Using cached resources (%d resources)", len(resources))
+			gui.useCachedResources(subID, rgName, resources)
+		} else {
+			// Load resources normally
+			gui.loadResources(subID, rgName)
+		}
 
 		// Switch focus to resources panel
 		gui.g.SetCurrentView("resources")
@@ -2105,6 +2121,27 @@ func (gui *Gui) refresh(g *gocui.Gui, v *gocui.View) error {
 		gui.updateStatus()
 		return nil
 	})
+
+	// Invalidate cache based on what panel is being refreshed
+	if refreshSubs {
+		gui.preloadCache.InvalidateSubs()
+		utils.Log("refresh: Invalidated all caches (subscriptions refresh)")
+	} else if refreshRGs {
+		gui.preloadCache.InvalidateRGs(savedSubID)
+		utils.Log("refresh: Invalidated RG cache for sub (RGs refresh)")
+	} else if refreshRes {
+		// Find RG name from ID for cache invalidation
+		gui.mu.RLock()
+		var rgName string
+		if gui.selectedRG != nil {
+			rgName = gui.selectedRG.Name
+		}
+		gui.mu.RUnlock()
+		if rgName != "" {
+			gui.preloadCache.InvalidateRes(savedSubID, rgName)
+			utils.Log("refresh: Invalidated resource cache for RG (resources refresh)")
+		}
+	}
 
 	// Reload data in a single goroutine to avoid race conditions
 	go func() {
@@ -2901,6 +2938,14 @@ func (gui *Gui) loadSubscriptions() {
 			})
 
 			utils.Log("loadSubscriptions: Completed in %v, loaded %d subscriptions", time.Since(startTime), len(subs))
+
+			// Trigger background preload of resource groups if we have a selected subscription
+			gui.mu.RLock()
+			selectedSub := gui.selectedSub
+			gui.mu.RUnlock()
+			if selectedSub != nil {
+				gui.preloadResourceGroups(selectedSub.ID)
+			}
 		}
 
 		// Clear loading state
@@ -2978,6 +3023,9 @@ func (gui *Gui) loadResourceGroups(subscriptionID string) {
 				})
 
 				utils.Log("loadResourceGroups: Completed in %v, loaded %d resource groups", time.Since(startTime), len(rgs))
+
+				// Trigger background preload of resources for top 5 RGs
+				gui.preloadTopResources(subscriptionID, rgs)
 			}
 		}
 
@@ -3008,7 +3056,7 @@ func (gui *Gui) loadResources(subscriptionID string, resourceGroupName string) {
 
 	go func() {
 		startTime := time.Now()
-		utils.Log("loadResources: Starting load for resource group '%s'", resourceGroupName)
+		utils.Log("loadResources: Starting load")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -3324,36 +3372,105 @@ func (gui *Gui) loadResourceDetails(originalRes *domain.Resource) {
 	})
 
 	go func() {
+		startTime := time.Now()
+
+		// Check if full resource details are already cached
+		if cachedRes, ok := gui.preloadCache.GetFullRes(originalRes.ID); ok {
+			utils.Log("loadResourceDetails: Using cached full details")
+
+			gui.mu.Lock()
+			gui.selectedRes = cachedRes
+			gui.loadingRes = false
+			gui.mu.Unlock()
+
+			gui.g.UpdateAsync(func(g *gocui.Gui) error {
+				gui.refreshMainPanel()
+				gui.updatePanelTitles()
+				gui.updateStatus()
+				return nil
+			})
+			return
+		}
+
+		// Check if already loading
+		if gui.preloadCache.IsFullResLoading(originalRes.ID) {
+			utils.Log("loadResourceDetails: Already loading, skipping duplicate request")
+			return
+		}
+
+		// Mark as loading
+		gui.preloadCache.SetFullResLoading(originalRes.ID, true)
+		utils.Log("loadResourceDetails: Starting to load full details")
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		defer gui.preloadCache.SetFullResLoading(originalRes.ID, false)
 
 		gui.mu.RLock()
 		resClient := gui.resClient
+		subscriptionID := ""
+		if gui.selectedSub != nil {
+			subscriptionID = gui.selectedSub.ID
+		}
 		gui.mu.RUnlock()
 
+		// Create client if not available (e.g., when using cached resources)
 		if resClient == nil {
-			utils.Log("loadResourceDetails: No resources client available")
-		} else {
-			// Fetch full resource details with provider-specific properties
-			resource, err := resClient.GetResource(ctx, originalRes.ID, originalRes.Type)
-			if err != nil {
-				utils.Log("loadResourceDetails: Error loading resource, type=%s, error=%v", originalRes.Type, err)
-			} else {
-				// Preserve createdTime and changedTime from the original list data
-				// (these aren't returned by GetByID but were in the list view)
-				resource.CreatedTime = originalRes.CreatedTime
-				resource.ChangedTime = originalRes.ChangedTime
-
+			if subscriptionID == "" {
+				utils.Log("loadResourceDetails: No subscription selected")
 				gui.mu.Lock()
-				gui.selectedRes = resource
+				gui.loadingRes = false
 				gui.mu.Unlock()
-
 				gui.g.UpdateAsync(func(g *gocui.Gui) error {
-					gui.refreshMainPanel()
-					gui.updatePanelTitles() // Restore focus indicator
+					gui.updateStatus()
 					return nil
 				})
+				return
 			}
+
+			var err error
+			resClient, err = gui.clientFactory.NewResourcesClient(subscriptionID)
+			if err != nil {
+				utils.Log("loadResourceDetails: Error creating resources client: %v", err)
+				gui.mu.Lock()
+				gui.loadingRes = false
+				gui.mu.Unlock()
+				gui.g.UpdateAsync(func(g *gocui.Gui) error {
+					gui.updateStatus()
+					return nil
+				})
+				return
+			}
+
+			// Store the client for future use
+			gui.mu.Lock()
+			gui.resClient = resClient
+			gui.mu.Unlock()
+		}
+
+		// Fetch full resource details with provider-specific properties
+		resource, err := resClient.GetResource(ctx, originalRes.ID, originalRes.Type)
+		if err != nil {
+			utils.Log("loadResourceDetails: Error loading resource, type=%s, error=%v", originalRes.Type, err)
+		} else {
+			// Preserve createdTime and changedTime from the original list data
+			// (these aren't returned by GetByID but were in the list view)
+			resource.CreatedTime = originalRes.CreatedTime
+			resource.ChangedTime = originalRes.ChangedTime
+
+			// Cache the full resource details
+			gui.preloadCache.SetFullRes(originalRes.ID, resource, cancel)
+			utils.Log("loadResourceDetails: Cached full details for future use")
+
+			gui.mu.Lock()
+			gui.selectedRes = resource
+			gui.mu.Unlock()
+
+			gui.g.UpdateAsync(func(g *gocui.Gui) error {
+				gui.refreshMainPanel()
+				gui.updatePanelTitles() // Restore focus indicator
+				return nil
+			})
 		}
 
 		// Clear loading state
@@ -3366,6 +3483,8 @@ func (gui *Gui) loadResourceDetails(originalRes *domain.Resource) {
 			gui.updateStatus()
 			return nil
 		})
+
+		utils.Log("loadResourceDetails: Completed in %v", time.Since(startTime))
 	}()
 }
 
@@ -3570,4 +3689,222 @@ func (gui *Gui) renderVersionStatus() {
 	}
 
 	fmt.Fprint(gui.statusView, status)
+}
+
+// useCachedResourceGroups uses cached resource groups data to update the UI
+// This is called when cache hit occurs in onSubEnter
+func (gui *Gui) useCachedResourceGroups(subscriptionID string, rgs []*domain.ResourceGroup) {
+	// Set loading state briefly for consistency
+	gui.mu.Lock()
+	gui.loadingRGs = true
+	gui.mu.Unlock()
+
+	gui.g.Update(func(g *gocui.Gui) error {
+		gui.updateStatus()
+		return nil
+	})
+
+	// Update data immediately (no async needed since we have the data)
+	gui.mu.Lock()
+	gui.resourceGroups = rgs
+	gui.rgClient = nil // Will be created on demand if needed
+	if len(rgs) > 0 {
+		gui.selectedRG = rgs[0]
+	} else {
+		gui.selectedRG = nil
+	}
+	// Clear resources when switching subscriptions
+	gui.resources = nil
+	gui.selectedRes = nil
+	gui.mu.Unlock()
+
+	// Update filtered list
+	gui.rgList.SetItems(rgs, func(rg *domain.ResourceGroup) string {
+		return formatWithGraySuffix(rg.DisplayString(), rg.GetDisplaySuffix())
+	})
+	// Clear resource list when switching subscriptions
+	gui.resList.SetItems([]*domain.Resource{}, func(res *domain.Resource) string {
+		return ""
+	})
+
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		gui.refreshResourceGroupsPanel()
+		gui.refreshResourcesPanel()
+		gui.refreshMainPanel()
+		return nil
+	})
+
+	// Clear loading state
+	gui.mu.Lock()
+	gui.loadingRGs = false
+	gui.mu.Unlock()
+
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		gui.updateStatus()
+		return nil
+	})
+
+	// Trigger background preload of resources for top 5 RGs
+	gui.preloadTopResources(subscriptionID, rgs)
+}
+
+// useCachedResources uses cached resources data to update the UI
+// This is called when cache hit occurs in onRGEnter
+func (gui *Gui) useCachedResources(subscriptionID string, rgName string, resources []*domain.Resource) {
+	// Set loading state briefly for consistency
+	gui.mu.Lock()
+	gui.loadingRes = true
+	gui.mu.Unlock()
+
+	gui.g.Update(func(g *gocui.Gui) error {
+		gui.updateStatus()
+		return nil
+	})
+
+	// Update data immediately (no async needed since we have the data)
+	gui.mu.Lock()
+	gui.resources = resources
+	gui.resClient = nil // Will be created on demand if needed
+	if len(resources) > 0 {
+		gui.selectedRes = resources[0]
+	} else {
+		gui.selectedRes = nil
+	}
+	gui.mu.Unlock()
+
+	// Update filtered list
+	gui.resList.SetItems(resources, func(res *domain.Resource) string {
+		return formatWithGraySuffix(res.DisplayString(), res.GetDisplaySuffix())
+	})
+
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		gui.refreshResourcesPanel()
+		gui.refreshMainPanel()
+		return nil
+	})
+
+	// Clear loading state
+	gui.mu.Lock()
+	gui.loadingRes = false
+	gui.mu.Unlock()
+
+	gui.g.UpdateAsync(func(g *gocui.Gui) error {
+		gui.updateStatus()
+		return nil
+	})
+}
+
+// preloadResourceGroups loads resource groups for a subscription in the background
+// and stores them in cache. This is called silently without UI updates.
+func (gui *Gui) preloadResourceGroups(subscriptionID string) {
+	// Check if already cached and not expired
+	if _, ok := gui.preloadCache.GetRGs(subscriptionID); ok {
+		utils.Log("preloadResourceGroups: Already cached, skipping")
+		return
+	}
+
+	// Check if already loading
+	if gui.preloadCache.IsRGLoading(subscriptionID) {
+		utils.Log("preloadResourceGroups: Already in progress, skipping")
+		return
+	}
+
+	// Mark as loading
+	gui.preloadCache.SetRGLoading(subscriptionID, true)
+
+	utils.Log("preloadResourceGroups: Starting preload")
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		defer cancel()
+		defer gui.preloadCache.SetRGLoading(subscriptionID, false)
+
+		startTime := time.Now()
+		rgClient, err := gui.clientFactory.NewResourceGroupsClient(subscriptionID)
+		if err != nil {
+			utils.Log("preloadResourceGroups: Error creating client: %v", err)
+			return
+		}
+
+		rgs, err := rgClient.ListResourceGroups(ctx)
+		if err != nil {
+			utils.Log("preloadResourceGroups: Error listing RGs: %v", err)
+			return
+		}
+
+		// Sort resource groups alphabetically
+		sort.Slice(rgs, func(i, j int) bool {
+			return strings.ToLower(rgs[i].Name) < strings.ToLower(rgs[j].Name)
+		})
+
+		// Store in cache
+		gui.preloadCache.SetRGs(subscriptionID, rgs, cancel)
+		utils.Log("preloadResourceGroups: Completed in %v, cached %d RGs", time.Since(startTime), len(rgs))
+
+		// Now preload resources for top 5 RGs
+		gui.preloadTopResources(subscriptionID, rgs)
+	}()
+}
+
+// preloadTopResources loads resources for the first 10 resource groups in the background
+func (gui *Gui) preloadTopResources(subscriptionID string, rgs []*domain.ResourceGroup) {
+	if len(rgs) == 0 {
+		return
+	}
+
+	// Limit to top 10 RGs for better coverage
+	count := 10
+	if len(rgs) < count {
+		count = len(rgs)
+	}
+
+	utils.Log("preloadTopResources: Preloading resources for top %d RGs", count)
+
+	for i := 0; i < count; i++ {
+		rgName := rgs[i].Name
+
+		// Check if already cached
+		if _, ok := gui.preloadCache.GetRes(subscriptionID, rgName); ok {
+			utils.Log("preloadTopResources: Already cached for RG #%d, skipping", i)
+			continue
+		}
+
+		// Check if already loading
+		if gui.preloadCache.IsResLoading(subscriptionID, rgName) {
+			utils.Log("preloadTopResources: Already loading for RG #%d, skipping", i)
+			continue
+		}
+
+		// Mark as loading
+		gui.preloadCache.SetResLoading(subscriptionID, rgName, true)
+
+		// Preload this RG's resources in background
+		go func(rgName string, index int) {
+			defer gui.preloadCache.SetResLoading(subscriptionID, rgName, false)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			resClient, err := gui.clientFactory.NewResourcesClient(subscriptionID)
+			if err != nil {
+				utils.Log("preloadTopResources: Error creating client for RG #%d: %v", index, err)
+				return
+			}
+
+			resources, err := resClient.ListResourcesByResourceGroup(ctx, rgName)
+			if err != nil {
+				utils.Log("preloadTopResources: Error listing resources for RG #%d: %v", index, err)
+				return
+			}
+
+			// Sort resources alphabetically
+			sort.Slice(resources, func(i, j int) bool {
+				return strings.ToLower(resources[i].Name) < strings.ToLower(resources[j].Name)
+			})
+
+			// Store in cache
+			gui.preloadCache.SetRes(subscriptionID, rgName, resources, cancel)
+			utils.Log("preloadTopResources: Cached %d resources for RG #%d", len(resources), index)
+		}(rgName, i)
+	}
 }

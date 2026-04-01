@@ -226,6 +226,66 @@ make update-api-versions
 - Unknown resource types: One-time penalty, then cached
 - Memory: ~15KB for curated cache, grows with runtime cache
 
+### 5.1 Background Preloading Cache
+
+LazyAzure implements a three-tier cache system to reduce perceived loading time:
+
+**Cache Architecture:**
+```
+Subscription selected
+    ↓
+[Background] Load resource groups → Cache (5 min TTL)
+    ↓
+[Background] Load resources for top 10 RGs → Cache (3 min TTL)
+    ↓
+User selects RG → Instant display (cached)
+    ↓
+User presses Enter on resource → Fetch full details → Cache (3 min TTL)
+    ↓
+Next time: Instant full details (cached)
+```
+
+**Three Cache Tiers:**
+
+1. **Resource Group Lists**
+   - Max 100 entries, 5-minute TTL
+   - Stores list of RGs per subscription
+   - Preloaded when subscription selected
+
+2. **Resource Lists**
+   - Max 500 entries, 3-minute TTL
+   - Stores list of resources per RG
+   - Preloaded for top 10 RGs
+
+3. **Full Resource Details**
+   - Max 500 entries, 3-minute TTL
+   - Stores complete resource with properties
+   - Cached on-demand when user views resource
+
+**Eviction:** When any cache tier is full, remove oldest 50%
+**Memory:** ~20-40 MB max
+
+**Cache Invalidation on Refresh ('r' key):**
+- Subscriptions panel refresh → Clear all caches
+- Resource Groups panel refresh → Clear RG + resource caches for current subscription
+- Resources panel refresh → Clear only current RG's resource cache
+
+**Key Methods:**
+- `PreloadCache.GetRGs(subID)` - Check RG cache before loading
+- `PreloadCache.GetRes(subID, rgName)` - Check resource list cache
+- `PreloadCache.GetFullRes(resourceID)` - Check full details cache
+- `PreloadCache.InvalidateSubs/RGs/Res()` - Scope-based invalidation
+- `preloadResourceGroups()` - Background loader for RGs
+- `preloadTopResources()` - Background loader for top 10 RG resources
+
+**Design Principles:**
+- Preload is **completely silent** - no UI updates, no loading indicators
+- User experience unchanged if preload fails
+- Context cancellation prevents wasted work when user navigates away
+- Duplicate prevention via loading flags
+- Privacy-safe logging (no IDs or names in debug logs)
+- Cache lookups in `onSubEnter` and `onRGEnter` for instant display
+
 ### 6. Testing
 
 **CRITICAL: Always add or update tests when making changes.**
@@ -417,6 +477,8 @@ pkg/
 │   ├── gui.go               # Main GUI controller with all TUI logic
 │   ├── gui_test.go          # GUI tests
 │   ├── interfaces.go        # Client interfaces for abstraction
+│   ├── cache.go             # Background preloading cache (RGs and resources)
+│   ├── cache_test.go        # Cache tests
 │   └── panels/
 │       ├── filtered_list.go      # Generic filtered list component
 │       ├── filtered_list_test.go # Filtered list tests

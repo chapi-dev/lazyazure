@@ -159,6 +159,11 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
 - ✅ Lazy loading (fetch on demand)
 - ✅ API version caching for resource providers
 - ✅ Async task management (non-blocking UI)
+- ✅ Background preloading with cache
+  - Resource groups preloaded after subscription load
+  - Top 5 RG resources preloaded after RG load
+  - 5-minute TTL for RGs, 3-minute TTL for resources
+  - Smart cache invalidation on refresh (panel-specific)
 
 ---
 
@@ -180,10 +185,11 @@ The following features are planned but not yet implemented:
 - ✅ Click list items to trigger Enter action
 - ✅ Click Summary/JSON tabs to switch views
 
-### Caching
-- In-memory cache for API responses
-- Cache expiration/invalidation
-- Background refresh
+### Caching ✅ COMPLETE
+- ✅ In-memory cache for API responses (resource groups and resources)
+- ✅ Cache expiration/invalidation (TTL-based)
+- ✅ Background preloading
+- 📝 Cache size limits (future: LRU eviction)
 
 ### Configuration
 - Config file support (`~/.config/lazyazure/config.yml`)
@@ -197,11 +203,11 @@ The following features are planned but not yet implemented:
 - Connection status indicator
 
 ### Performance
-- Background loading
+- ✅ Background loading (preloading)
 - UI-level pagination controls
 - Virtual scrolling for large lists
 - Optimistic updates
-- Add loading indicators
+- ✅ Loading indicators (already implemented)
 
 ---
 
