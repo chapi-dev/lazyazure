@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -17,17 +16,6 @@ import (
 	"github.com/matsest/lazyazure/pkg/gui"
 	"github.com/matsest/lazyazure/pkg/utils"
 )
-
-// printVersion prints version information
-func printVersion() {
-	// Shorten commit for display
-	displayCommit := commit
-	if len(displayCommit) > 7 {
-		displayCommit = displayCommit[:7]
-	}
-
-	fmt.Printf("lazyazure %s (%s)\n", version, displayCommit)
-}
 
 // Version info - set by GoReleaser during build
 var (
@@ -52,43 +40,81 @@ func GetVersionInfo() VersionInfo {
 	}
 }
 
+// CLIArgs holds the parsed command-line arguments
+type CLIArgs struct {
+	ShowVersion bool
+	CheckUpdate bool
+}
+
+// parseArgs parses command-line arguments and returns a CLIArgs struct
+func parseArgs(args []string) (CLIArgs, error) {
+	var result CLIArgs
+
+	if len(args) > 1 {
+		switch args[1] {
+		case "--version":
+			result.ShowVersion = true
+		case "--check-update":
+			result.CheckUpdate = true
+		default:
+			return result, fmt.Errorf("unknown flag: %s", args[1])
+		}
+	}
+
+	return result, nil
+}
+
+// printVersion prints version information
+func printVersion(version, commit string) {
+	// Shorten commit for display
+	displayCommit := commit
+	if len(displayCommit) > 7 {
+		displayCommit = displayCommit[:7]
+	}
+
+	fmt.Printf("lazyazure %s (%s)\n", version, displayCommit)
+}
+
 // GitHubRelease represents a GitHub release API response
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
 // checkUpdate checks for updates from GitHub releases
-func checkUpdate() error {
+func checkUpdate(version, commit string, httpClient *http.Client, apiURL string) (exitCode int, err error) {
+	if apiURL == "" {
+		apiURL = "https://api.github.com/repos/matsest/lazyazure/releases/latest"
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/matsest/lazyazure/releases/latest", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
+		return 2, fmt.Errorf("failed to create request: %v", err)
 	}
 
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "lazyazure")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to fetch release: %v", err)
+		return 2, fmt.Errorf("failed to fetch release: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return 2, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %v", err)
+		return 2, fmt.Errorf("failed to read response: %v", err)
 	}
 
 	var release GitHubRelease
 	if err := json.Unmarshal(body, &release); err != nil {
-		return fmt.Errorf("failed to parse response: %v", err)
+		return 2, fmt.Errorf("failed to parse response: %v", err)
 	}
 
 	// Print current version
@@ -100,11 +126,11 @@ func checkUpdate() error {
 	fmt.Printf("Latest version:  %s\n", release.TagName)
 
 	// Check if development build
-	isDev := isDevelopmentBuild()
+	isDev := isDevelopmentBuild(version)
 	if isDev {
 		fmt.Println()
 		fmt.Println("Note: This is a development build. Skipping version comparison.")
-		return nil
+		return 0, nil
 	}
 
 	// Compare versions (normalize by stripping "v" prefix)
@@ -115,16 +141,16 @@ func checkUpdate() error {
 		fmt.Printf("Update available! You are running %s, latest is %s\n", version, release.TagName)
 		fmt.Println()
 		fmt.Println("To update, download from: https://github.com/matsest/lazyazure/releases/latest")
-		os.Exit(1)
+		return 1, nil
 	}
 
 	fmt.Println()
 	fmt.Println("You are running the latest version.")
-	return nil
+	return 0, nil
 }
 
 // isDevelopmentBuild checks if this is a development/non-release build
-func isDevelopmentBuild() bool {
+func isDevelopmentBuild(version string) bool {
 	if version == "dev" {
 		return true
 	}
@@ -145,26 +171,32 @@ func isDevelopmentBuild() bool {
 	return false
 }
 
-func main() {
-	// Handle version command
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		printVersion()
-		os.Exit(0)
+// runCLI handles CLI commands (--version, --check-update) and returns exit code
+func runCLI(args CLIArgs, version, commit string, httpClient *http.Client, apiURL string) int {
+	if args.ShowVersion {
+		printVersion(version, commit)
+		return 0
 	}
 
-	// Handle check-update command
-	if len(os.Args) > 1 && os.Args[1] == "--check-update" {
-		if err := checkUpdate(); err != nil {
+	if args.CheckUpdate {
+		exitCode, err := checkUpdate(version, commit, httpClient, apiURL)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error checking for updates: %v\n", err)
-			os.Exit(2)
+			return 2
 		}
-		os.Exit(0)
+		return exitCode
 	}
+
+	return -1 // -1 means no CLI command handled, should run app
+}
+
+// runApp initializes and runs the GUI application
+func runApp(version, commit, date string) int {
 	// Initialize logger if LAZYAZURE_DEBUG is set
 	if utils.IsDebugEnabled() {
 		if err := utils.InitLogger(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 		defer utils.CloseLogger()
 		utils.Log("Starting LazyAzure with debug logging enabled...")
@@ -188,7 +220,8 @@ func main() {
 		client, err := azure.NewClient()
 		if err != nil {
 			utils.Log("ERROR: Failed to create Azure client: %v", err)
-			log.Fatalf("Failed to create Azure client: %v", err)
+			fmt.Fprintf(os.Stderr, "Failed to create Azure client: %v\n", err)
+			return 1
 		}
 		utils.Log("Azure client created successfully")
 
@@ -198,7 +231,7 @@ func main() {
 			utils.Log("ERROR: Authentication failed: %v", err)
 			fmt.Fprintf(os.Stderr, "Authentication failed: %v\n", err)
 			fmt.Fprintf(os.Stderr, "Please ensure you're logged in with 'az login'\n")
-			os.Exit(1)
+			return 1
 		}
 		utils.Log("Authentication verified successfully")
 
@@ -215,7 +248,8 @@ func main() {
 	g, err := gui.NewGui(azureClient, clientFactory, versionInfo)
 	if err != nil {
 		utils.Log("ERROR: Failed to create GUI: %v", err)
-		log.Fatalf("Failed to create GUI: %v", err)
+		fmt.Fprintf(os.Stderr, "Failed to create GUI: %v\n", err)
+		return 1
 	}
 	utils.Log("GUI created successfully")
 
@@ -227,13 +261,33 @@ func main() {
 	if runErr != nil {
 		if runErr.Error() == "quit" || runErr.Error() == gocui.ErrQuit.Error() {
 			utils.Log("Normal quit - exiting cleanly")
-			os.Exit(0)
+			return 0
 		} else {
 			utils.Log("ERROR: GUI error: %v", runErr)
-			log.Fatalf("GUI error: %v", runErr)
+			fmt.Fprintf(os.Stderr, "GUI error: %v\n", runErr)
+			return 1
 		}
 	}
 
 	utils.Log("Application exiting normally")
-	os.Exit(0)
+	return 0
+}
+
+func main() {
+	// Parse command-line arguments
+	args, err := parseArgs(os.Args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Usage: lazyazure [--version|--check-update]\n")
+		os.Exit(1)
+	}
+
+	// Handle CLI commands
+	exitCode := runCLI(args, version, commit, &http.Client{Timeout: 10 * time.Second}, "")
+	if exitCode >= 0 {
+		os.Exit(exitCode)
+	}
+
+	// Run the GUI application
+	os.Exit(runApp(version, commit, date))
 }

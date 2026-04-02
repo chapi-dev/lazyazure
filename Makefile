@@ -16,7 +16,7 @@ build:
 
 .PHONY: test
 test:
-	go test ./pkg/...
+	go test ./...
 
 .PHONY: clean
 clean:
@@ -27,7 +27,7 @@ all: test build
 
 .PHONY: test-coverage
 test-coverage:
-	go test -cover ./pkg/...
+	go test -cover ./...
 
 .PHONY: lint
 lint:
