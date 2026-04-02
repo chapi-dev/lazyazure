@@ -169,6 +169,10 @@ func parseResourceID(resourceID string) map[string]string {
 func extractProperties(res *armresources.GenericResourceExpanded) map[string]interface{} {
 	props := make(map[string]interface{})
 
+	if res == nil {
+		return props
+	}
+
 	// Note: createdTime and changedTime are extracted as top-level fields
 	// in the Resource struct, not in Properties
 
