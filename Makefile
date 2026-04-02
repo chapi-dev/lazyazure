@@ -14,9 +14,17 @@ LDFLAGS := -X main.version=$(VERSION) \
 build:
 	go build -ldflags "$(LDFLAGS)" -o lazyazure .
 
+.PHONY: build-ci
+build-ci:
+	go build -ldflags "$(LDFLAGS)" -o lazyazure . -v
+
 .PHONY: test
 test:
 	go test ./...
+
+.PHONY: test-ci
+test-ci:
+	go test ./... -v -timeout 60s
 
 .PHONY: clean
 clean:

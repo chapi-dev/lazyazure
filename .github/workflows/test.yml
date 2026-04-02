@@ -8,6 +8,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'pkg/**'
+      - '.github/workflows/test.yml'
   pull_request:
     branches: [ main ]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'pkg/**'
+      - '.github/workflows/test.yml'
 
 permissions:
   contents: read
@@ -43,7 +45,7 @@ jobs:
         fi
 
     - name: Run tests
-      run: go test ./pkg/... -v -timeout 60s
+      run: make test-ci
 
     - name: Build
-      run: go build -v .
+      run: make build-ci
