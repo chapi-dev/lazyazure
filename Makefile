@@ -26,6 +26,17 @@ test:
 test-ci:
 	go test ./... -v -timeout 60s
 
+.PHONY: test-integration
+test-integration: build
+	@echo "Running integration tests..."
+	@which tmux >/dev/null 2>&1 || (echo "Error: tmux is required for integration tests" && exit 1)
+	@test -f ./lazyazure || (echo "Error: lazyazure binary not found. Run 'make build' first." && exit 1)
+	@echo "Testing with tmux version: $$(tmux -V)"
+	@./scripts/test-scrolling.sh
+	@./scripts/test-search.sh
+	@./scripts/test-panel-switch.sh
+	@echo "✓ All integration tests passed!"
+
 .PHONY: clean
 clean:
 	rm -f lazyazure

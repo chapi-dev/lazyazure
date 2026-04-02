@@ -18,10 +18,6 @@ trap cleanup EXIT
 echo "=== Testing Panel Switching ==="
 echo "Session: $SESSION"
 
-# Build the app first
-echo "Building..."
-go build . > /dev/null 2>&1
-
 # Create tmux session
 tmux new-session -d -s "$SESSION" $DIMENSIONS
 

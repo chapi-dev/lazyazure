@@ -8,6 +8,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'pkg/**'
+      - 'scripts/**'
       - '.github/workflows/test.yml'
   pull_request:
     branches: [ main ]
@@ -16,6 +17,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'pkg/**'
+      - 'scripts/**'
       - '.github/workflows/test.yml'
 
 permissions:
@@ -82,8 +84,11 @@ jobs:
     - name: Run tests
       run: make test-ci
 
-    - name: Build
-      run: make build-ci
+    - name: Install tmux
+      run: sudo apt-get update && sudo apt-get install -y tmux
+
+    - name: Run integration tests
+      run: make test-integration
 
     - name: Print version info
       run: ./lazyazure --version

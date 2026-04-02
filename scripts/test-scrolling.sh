@@ -16,10 +16,6 @@ trap cleanup EXIT
 echo "=== Testing List Panel Scrolling ==="
 echo "Session: $SESSION"
 
-# Build the app first
-echo "Building..."
-go build . > /dev/null 2>&1
-
 # Create tmux session with small height to force scrolling
 tmux new-session -d -s "$SESSION" $DIMENSIONS
 

@@ -18,9 +18,9 @@ echo "=== Testing Search Functionality ==="
 # Create detached session
 tmux new-session -d -s "$SESSION" $DIMENSIONS
 
-# Build and start app in demo mode
-echo "Building and starting lazyazure..."
-tmux send-keys -t "$SESSION" "cd $(pwd) && go build . && LAZYAZURE_DEBUG=1 LAZYAZURE_DEMO=1 ./lazyazure" Enter
+# Start app in demo mode
+echo "Starting lazyazure..."
+tmux send-keys -t "$SESSION" "cd $(pwd) && LAZYAZURE_DEBUG=1 LAZYAZURE_DEMO=1 ./lazyazure" Enter
 
 # Wait for app initialization
 sleep 3
