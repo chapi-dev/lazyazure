@@ -321,13 +321,18 @@ Do NOT attempt to test TUI applications by running them directly - they require 
 
 **Example workflow for GUI bug fixes:**
 ```bash
-# 1. Create test script (e.g., scripts/test-scrolling.sh)
+# 1. Create or update a test script in scripts/test-*.sh
 # 2. Make the script executable
-chmod +x scripts/test-scrolling.sh
+chmod +x scripts/test-<feature>.sh
 
 # 3. Run the test
-./scripts/test-scrolling.sh
+./scripts/test-<feature>.sh
 ```
+
+**Available test scripts:**
+- `scripts/test-scrolling.sh` - Tests scrolling functionality in list panels
+- `scripts/test-search.sh` - Tests search/filter functionality
+- `scripts/test-panel-switch.sh` - Tests Tab/Shift+Tab panel navigation
 
 **Capabilities:**
 - **Text-based testing**: Capture pane content for assertions (works in any environment including CI/CD)
@@ -447,9 +452,21 @@ make test
 make update-api-versions
 ```
 
+#### CLI Testability
+
+The `main.go` file has been refactored for testability with extracted functions:
+- `parseArgs(args []string) (CLIArgs, error)` - Parses command-line arguments
+- `printVersion(version, commit string)` - Prints version information
+- `printHelp()` - Prints help message with environment variable documentation
+- `checkForUpdates(version string, client *http.Client) (bool, string, error)` - Checks GitHub releases
+
+These functions can be tested without running the full TUI application. See `main_test.go` for examples.
+
 ### 9. File Organization
 
 ```
+main.go                      # Application entry point (refactored for testability)
+main_test.go                 # CLI tests (argument parsing, version checking)
 docs/
 └── TUI_TESTING.md           # TUI testing documentation with tmux
 pkg/
@@ -458,9 +475,11 @@ pkg/
 │   ├── client_test.go       # Azure client tests
 │   ├── factory.go           # Client factory for dependency injection
 │   ├── subscriptions.go     # Subscription operations
+│   ├── subscriptions_test.go # Subscription client tests
 │   ├── resourcegroups.go    # Resource group operations
 │   ├── resourcegroups_test.go # RG tests
 │   ├── resources.go         # Generic resource operations
+│   ├── resources_test.go    # Resource client tests
 │   ├── api_versions.go      # Dynamic API version lookup with caching
 │   ├── api_versions_curated.json # Pre-loaded API versions for common types
 │   └── api_versions_test.go # API version cache tests
@@ -495,15 +514,24 @@ pkg/
 │   ├── tasks.go
 │   └── tasks_test.go        # Task manager tests
 └── utils/          # Utilities
-tools/
-└── update-api-versions/
-    └── main.go              # Tool to extract API versions from bicep-types-az
     ├── logger.go            # Debug logging (opt-in via LAZYAZURE_DEBUG)
+    ├── logger_test.go       # Logger tests with privacy protection
     ├── clipboard.go         # Clipboard operations (cross-platform)
     ├── browser.go           # Browser opening operations (cross-platform)
     ├── browser_test.go      # Browser utility tests
     ├── portal_urls.go       # Azure Portal URL generation
     └── portal_urls_test.go  # Portal URL tests
+scripts/            # TUI integration test scripts (tmux-based)
+├── test-scrolling.sh      # Scrolling functionality tests
+├── test-search.sh         # Search functionality tests
+└── test-panel-switch.sh   # Panel switching tests (Tab/Shift+Tab)
+tools/
+└── update-api-versions/
+    └── main.go              # Tool to extract API versions from bicep-types-az
+.opencode/
+└── skills/
+    └── release-summary/
+        └── SKILL.md         # Release summary skill for agents
 ```
 
 ### 10. Code Style
