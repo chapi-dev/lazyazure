@@ -147,7 +147,7 @@ func isDevelopmentBuild() bool {
 
 func main() {
 	// Handle version command
-	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version" || os.Args[1] == "-v") {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		printVersion()
 		os.Exit(0)
 	}
