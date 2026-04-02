@@ -90,9 +90,10 @@ func printHelp() {
 	fmt.Println("      --check-update  Check for available updates")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
-	fmt.Println("  LAZYAZURE_DEBUG=1   Enable debug logging (logs to ~/.lazyazure/debug.log)")
-	fmt.Println("  LAZYAZURE_DEMO=1    Run with mock data (small dataset)")
-	fmt.Println("  LAZYAZURE_DEMO=2    Run with mock data (large dataset)")
+	fmt.Println("  LAZYAZURE_DEBUG=1       Enable debug logging (logs to ~/.lazyazure/debug.log)")
+	fmt.Println("  LAZYAZURE_DEMO=1        Run with mock data (small dataset)")
+	fmt.Println("  LAZYAZURE_DEMO=2        Run with mock data (large dataset)")
+	fmt.Println("  LAZYAZURE_CACHE_SIZE    Cache size: small (100/500), medium (300/1500, default), large (600/3000)")
 	fmt.Println()
 	fmt.Println("For more information, visit: https://github.com/matsest/lazyazure")
 }

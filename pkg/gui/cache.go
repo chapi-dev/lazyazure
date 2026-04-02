@@ -2,19 +2,94 @@ package gui
 
 import (
 	"context"
+	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/matsest/lazyazure/pkg/domain"
 )
 
+// Cache sizing constants - base values
 const (
-	rgCacheTTL  = 5 * time.Minute
-	resCacheTTL = 3 * time.Minute
-	maxRGCache  = 100
-	maxResCache = 500
+	rgCacheTTL   = 5 * time.Minute
+	resCacheTTL  = 3 * time.Minute
+	baseRGCache  = 100
+	baseResCache = 500
 )
+
+// Cache size tiers
+const (
+	smallRGCache  = 100
+	smallResCache = 500
+
+	mediumRGCache  = 300
+	mediumResCache = 1500
+
+	largeRGCache  = 600
+	largeResCache = 3000
+)
+
+// CacheSizeLevel represents the cache size configuration level
+type CacheSizeLevel int
+
+const (
+	CacheSizeSmall  CacheSizeLevel = iota // Small cache (0.5x base)
+	CacheSizeMedium                       // Medium cache (1x base) - default
+	CacheSizeLarge                        // Large cache (3x base)
+)
+
+// CacheConfig holds cache size configuration
+type CacheConfig struct {
+	Level            CacheSizeLevel
+	RGCacheSize      int
+	ResCacheSize     int
+	FullResCacheSize int
+}
+
+// parseCacheSizeLevel parses a string into CacheSizeLevel
+// Empty string returns CacheSizeMedium (default)
+func parseCacheSizeLevel(s string) CacheSizeLevel {
+	switch strings.ToLower(s) {
+	case "small":
+		return CacheSizeSmall
+	case "large":
+		return CacheSizeLarge
+	case "medium":
+		return CacheSizeMedium
+	default:
+		return CacheSizeMedium // Default to medium for empty or invalid values
+	}
+}
+
+// GetCacheConfig returns the cache configuration based on environment
+// Defaults to medium if LAZYAZURE_CACHE_SIZE is not set or invalid
+func GetCacheConfig() CacheConfig {
+	levelStr := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	level := parseCacheSizeLevel(levelStr)
+
+	config := CacheConfig{
+		Level: level,
+	}
+
+	switch level {
+	case CacheSizeSmall:
+		config.RGCacheSize = smallRGCache
+		config.ResCacheSize = smallResCache
+		config.FullResCacheSize = smallResCache
+	case CacheSizeLarge:
+		config.RGCacheSize = largeRGCache
+		config.ResCacheSize = largeResCache
+		config.FullResCacheSize = largeResCache
+	default: // CacheSizeMedium
+		config.RGCacheSize = mediumRGCache
+		config.ResCacheSize = mediumResCache
+		config.FullResCacheSize = mediumResCache
+	}
+
+	return config
+}
 
 // cachedRGs holds cached resource groups for a subscription
 type cachedRGs struct {
@@ -52,15 +127,22 @@ type PreloadCache struct {
 	fullResLoading map[string]bool // Track in-progress full resource detail loads
 }
 
-// NewPreloadCache creates a new preload cache with default limits
+// NewPreloadCache creates a new preload cache with environment-based limits
+// Uses LAZYAZURE_CACHE_SIZE environment variable: small, medium (default), large
 func NewPreloadCache() *PreloadCache {
+	config := GetCacheConfig()
+	return NewPreloadCacheWithConfig(config)
+}
+
+// NewPreloadCacheWithConfig creates a new preload cache with specific configuration
+func NewPreloadCacheWithConfig(config CacheConfig) *PreloadCache {
 	return &PreloadCache{
 		rgs:            make(map[string]*cachedRGs),
 		res:            make(map[string]*cachedResources),
 		fullRes:        make(map[string]*cachedFullResource),
-		rgLimit:        maxRGCache,
-		resLimit:       maxResCache,
-		fullResLimit:   maxResCache, // Same limit as resources
+		rgLimit:        config.RGCacheSize,
+		resLimit:       config.ResCacheSize,
+		fullResLimit:   config.FullResCacheSize,
 		rgLoading:      make(map[string]bool),
 		resLoading:     make(map[string]bool),
 		fullResLoading: make(map[string]bool),
@@ -346,7 +428,6 @@ func (c *PreloadCache) evictOldestRGs(count int) {
 		return
 	}
 
-	// Get all keys with timestamps
 	type keyTime struct {
 		key       string
 		timestamp time.Time
@@ -356,12 +437,10 @@ func (c *PreloadCache) evictOldestRGs(count int) {
 		entries = append(entries, keyTime{key, cached.timestamp})
 	}
 
-	// Sort by timestamp (oldest first)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].timestamp.Before(entries[j].timestamp)
 	})
 
-	// Remove oldest entries
 	for i := 0; i < count && i < len(entries); i++ {
 		key := entries[i].key
 		if cached, ok := c.rgs[key]; ok && cached.cancel != nil {
@@ -377,7 +456,6 @@ func (c *PreloadCache) evictOldestRes(count int) {
 		return
 	}
 
-	// Get all keys with timestamps
 	type keyTime struct {
 		key       string
 		timestamp time.Time
@@ -387,12 +465,10 @@ func (c *PreloadCache) evictOldestRes(count int) {
 		entries = append(entries, keyTime{key, cached.timestamp})
 	}
 
-	// Sort by timestamp (oldest first)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].timestamp.Before(entries[j].timestamp)
 	})
 
-	// Remove oldest entries
 	for i := 0; i < count && i < len(entries); i++ {
 		key := entries[i].key
 		if cached, ok := c.res[key]; ok && cached.cancel != nil {
@@ -408,7 +484,6 @@ func (c *PreloadCache) evictOldestFullRes(count int) {
 		return
 	}
 
-	// Get all keys with timestamps
 	type keyTime struct {
 		key       string
 		timestamp time.Time
@@ -418,12 +493,10 @@ func (c *PreloadCache) evictOldestFullRes(count int) {
 		entries = append(entries, keyTime{key, cached.timestamp})
 	}
 
-	// Sort by timestamp (oldest first)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].timestamp.Before(entries[j].timestamp)
 	})
 
-	// Remove oldest entries
 	for i := 0; i < count && i < len(entries); i++ {
 		key := entries[i].key
 		if cached, ok := c.fullRes[key]; ok && cached.cancel != nil {

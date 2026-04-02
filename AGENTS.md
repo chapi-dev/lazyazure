@@ -286,6 +286,34 @@ Next time: Instant full details (cached)
 - Privacy-safe logging (no IDs or names in debug logs)
 - Cache lookups in `onSubEnter` and `onRGEnter` for instant display
 
+### 5.2 Cache Sizing
+
+Cache limits are configurable via environment variable. Defaults to medium which is suitable for most users.
+
+**Environment Variable:** `LAZYAZURE_CACHE_SIZE`
+
+| Value  | RG Cache | Resource Cache | Full Resource Cache | Approx Memory | Best For |
+|--------|----------|----------------|---------------------|---------------|----------|
+| small  | 100      | 500            | 500                 | ~20-40 MB     | Low memory environments (<4GB RAM) |
+| medium | 300      | 1,500          | 1,500               | ~60-120 MB    | **Default** - Most users |
+| large  | 600      | 3,000          | 3,000               | ~120-240 MB   | 100+ subscriptions |
+
+**Examples:**
+```bash
+# Default (medium)
+./lazyazure
+
+# Force specific size
+LAZYAZURE_CACHE_SIZE=small ./lazyazure    # 100/500 cache
+LAZYAZURE_CACHE_SIZE=medium ./lazyazure   # 300/1500 cache  
+LAZYAZURE_CACHE_SIZE=large ./lazyazure    # 600/3000 cache
+```
+
+**Implementation:**
+- `GetCacheConfig()` - Parses environment and returns `CacheConfig`
+- `NewPreloadCache()` - Uses environment-based config automatically (defaults to medium)
+- `NewPreloadCacheWithConfig()` - Allows explicit configuration for testing
+
 ### 6. Testing
 
 **CRITICAL: Always add or update tests when making changes.**
@@ -501,7 +529,7 @@ pkg/
 │   ├── gui.go               # Main GUI controller with all TUI logic
 │   ├── gui_test.go          # GUI tests
 │   ├── interfaces.go        # Client interfaces for abstraction
-│   ├── cache.go             # Background preloading cache (RGs and resources)
+│   ├── cache.go             # Background preloading cache with dynamic sizing
 │   ├── cache_test.go        # Cache tests
 │   └── panels/
 │       ├── filtered_list.go      # Generic filtered list component
@@ -780,6 +808,7 @@ Before finishing a session or committing changes:
   - [ ] License compatibility verified for new dependencies
 - [ ] **Documentation updated**:
   - [ ] AGENTS.md - File organization section, relevant guidelines, and checklist updated
+  - [ ] README.md - User-facing documentation updated for any new features that's relevant for users
   - [ ] New features/patterns documented in appropriate sections
 - [ ] **File organization documented**:
   - [ ] New packages added to AGENTS.md section 9 (File Organization)

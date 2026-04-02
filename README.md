@@ -225,6 +225,28 @@ To view logs:
 cat ~/.lazyazure/debug.log
 ```
 
+## Cache Configuration
+
+LazyAzure caches resource groups and resources to improve performance. You can configure the cache size using the `LAZYAZURE_CACHE_SIZE` environment variable:
+
+| Size   | RG Cache | Resource Cache | Approx Memory | Best For                          |
+| ------ | -------- | -------------- | ------------- | --------------------------------- |
+| small  | 100      | 500            | ~20-40 MB     | Low memory environments (<4GB)    |
+| medium | 300      | 1,500          | ~60-120 MB    | **Default** - Most users          |
+| large  | 600      | 3,000          | ~120-240 MB   | 100+ subscriptions, high activity |
+
+**Examples:**
+```bash
+# Default (medium)
+lazyazure
+
+# Use small cache for constrained environments
+LAZYAZURE_CACHE_SIZE=small lazyazure
+
+# Use large cache for better performance with many subscriptions
+LAZYAZURE_CACHE_SIZE=large lazyazure
+```
+
 ## Cross-Platform Support
 
 The project aims to have full cross-platform support.

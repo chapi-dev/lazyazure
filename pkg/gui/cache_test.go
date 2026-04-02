@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -15,12 +16,13 @@ func TestNewPreloadCache(t *testing.T) {
 		t.Fatal("NewPreloadCache returned nil")
 	}
 
-	if cache.rgLimit != maxRGCache {
-		t.Errorf("Expected rgLimit to be %d, got %d", maxRGCache, cache.rgLimit)
+	// Default should be medium
+	if cache.rgLimit != mediumRGCache {
+		t.Errorf("Expected rgLimit to be %d, got %d", mediumRGCache, cache.rgLimit)
 	}
 
-	if cache.resLimit != maxResCache {
-		t.Errorf("Expected resLimit to be %d, got %d", maxResCache, cache.resLimit)
+	if cache.resLimit != mediumResCache {
+		t.Errorf("Expected resLimit to be %d, got %d", mediumResCache, cache.resLimit)
 	}
 
 	if cache.rgs == nil {
@@ -33,7 +35,11 @@ func TestNewPreloadCache(t *testing.T) {
 }
 
 func TestPreloadCache_SetAndGetRGs(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-subscription-123"
 
 	// Test setting RGs
@@ -66,7 +72,11 @@ func TestPreloadCache_SetAndGetRGs(t *testing.T) {
 
 func TestPreloadCache_RGsExpiration(t *testing.T) {
 	// Create cache with very short TTL for testing
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-subscription"
 
 	rgs := []*domain.ResourceGroup{{Name: "rg1"}}
@@ -95,7 +105,11 @@ func TestPreloadCache_RGsExpiration(t *testing.T) {
 }
 
 func TestPreloadCache_SetAndGetRes(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-subscription"
 	rgName := "test-rg"
 
@@ -128,7 +142,11 @@ func TestPreloadCache_SetAndGetRes(t *testing.T) {
 }
 
 func TestPreloadCache_ResExpiration(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-subscription"
 	rgName := "test-rg"
 
@@ -159,7 +177,11 @@ func TestPreloadCache_ResExpiration(t *testing.T) {
 }
 
 func TestPreloadCache_InvalidateSubs(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 
 	// Set up some data
 	sub1ID := "sub-1"
@@ -192,7 +214,11 @@ func TestPreloadCache_InvalidateSubs(t *testing.T) {
 }
 
 func TestPreloadCache_InvalidateRGs(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	sub1ID := "sub-1"
 	sub2ID := "sub-2"
 
@@ -226,7 +252,11 @@ func TestPreloadCache_InvalidateRGs(t *testing.T) {
 }
 
 func TestPreloadCache_InvalidateRes(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-sub"
 
 	_, cancel := context.WithCancel(context.Background())
@@ -257,8 +287,11 @@ func TestPreloadCache_InvalidateRes(t *testing.T) {
 }
 
 func TestPreloadCache_EvictOldestRGs(t *testing.T) {
-	cache := NewPreloadCache()
-	cache.rgLimit = 4 // Small limit for testing
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      4,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -294,8 +327,11 @@ func TestPreloadCache_EvictOldestRGs(t *testing.T) {
 }
 
 func TestPreloadCache_EvictOldestRes(t *testing.T) {
-	cache := NewPreloadCache()
-	cache.resLimit = 4 // Small limit for testing
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     4,
+		FullResCacheSize: 500,
+	})
 
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -331,7 +367,11 @@ func TestPreloadCache_EvictOldestRes(t *testing.T) {
 }
 
 func TestPreloadCache_CancelOnSet(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-sub"
 
 	// First cancel func
@@ -362,7 +402,11 @@ func TestPreloadCache_CancelOnSet(t *testing.T) {
 }
 
 func TestPreloadCache_GetCacheStats(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -391,7 +435,11 @@ func TestPreloadCache_GetCacheStats(t *testing.T) {
 }
 
 func TestPreloadCache_ConcurrentAccess(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -428,7 +476,11 @@ func TestPreloadCache_ConcurrentAccess(t *testing.T) {
 }
 
 func TestPreloadCache_IsRGLoading(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-sub"
 
 	// Initially not loading
@@ -450,7 +502,11 @@ func TestPreloadCache_IsRGLoading(t *testing.T) {
 }
 
 func TestPreloadCache_IsResLoading(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-sub"
 	rgName := "test-rg"
 
@@ -473,7 +529,11 @@ func TestPreloadCache_IsResLoading(t *testing.T) {
 }
 
 func TestPreloadCache_ClearLoadingOnSet(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-sub"
 	rgName := "test-rg"
 
@@ -506,7 +566,11 @@ func TestPreloadCache_ClearLoadingOnSet(t *testing.T) {
 }
 
 func TestPreloadCache_ClearLoadingOnInvalidate(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	subID := "test-sub"
 	rgName := "test-rg"
 
@@ -547,7 +611,11 @@ func TestPreloadCache_ClearLoadingOnInvalidate(t *testing.T) {
 }
 
 func TestPreloadCache_FullResourceCache(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	resID := "/subscriptions/sub-123/resourceGroups/rg-456/providers/Microsoft.Compute/virtualMachines/vm-1"
 
 	// Initially not found
@@ -576,7 +644,11 @@ func TestPreloadCache_FullResourceCache(t *testing.T) {
 }
 
 func TestPreloadCache_FullResourceExpiration(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	resID := "test-resource-id"
 
 	resource := &domain.Resource{Name: "test"}
@@ -602,7 +674,11 @@ func TestPreloadCache_FullResourceExpiration(t *testing.T) {
 }
 
 func TestPreloadCache_FullResourceLoading(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	resID := "test-resource-id"
 
 	// Initially not loading
@@ -624,7 +700,11 @@ func TestPreloadCache_FullResourceLoading(t *testing.T) {
 }
 
 func TestPreloadCache_FullResourceClearOnSet(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	resID := "test-resource-id"
 
 	// Set loading flag
@@ -645,7 +725,11 @@ func TestPreloadCache_FullResourceClearOnSet(t *testing.T) {
 }
 
 func TestPreloadCache_FullResourceInvalidateSubs(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 	resID := "test-resource-id"
 
 	// Set cache first (this clears loading flag)
@@ -679,7 +763,11 @@ func TestPreloadCache_FullResourceInvalidateSubs(t *testing.T) {
 }
 
 func TestPreloadCache_FullResourceCacheStats(t *testing.T) {
-	cache := NewPreloadCache()
+	cache := NewPreloadCacheWithConfig(CacheConfig{
+		RGCacheSize:      100,
+		ResCacheSize:     500,
+		FullResCacheSize: 500,
+	})
 
 	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -697,5 +785,188 @@ func TestPreloadCache_FullResourceCacheStats(t *testing.T) {
 	_, _, fullResCount = cache.GetCacheStats()
 	if fullResCount != 2 {
 		t.Errorf("Expected 2 full resources, got %d", fullResCount)
+	}
+}
+
+// Cache configuration tests
+
+func TestGetCacheConfig_Default(t *testing.T) {
+	// Save original env var
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer func() {
+		if origVal == "" {
+			os.Unsetenv("LAZYAZURE_CACHE_SIZE")
+		} else {
+			os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+		}
+	}()
+
+	// Test default (medium)
+	os.Unsetenv("LAZYAZURE_CACHE_SIZE")
+	config := GetCacheConfig()
+
+	if config.Level != CacheSizeMedium {
+		t.Errorf("Expected default level CacheSizeMedium, got %v", config.Level)
+	}
+	if config.RGCacheSize != mediumRGCache {
+		t.Errorf("Expected RGCacheSize %d, got %d", mediumRGCache, config.RGCacheSize)
+	}
+	if config.ResCacheSize != mediumResCache {
+		t.Errorf("Expected ResCacheSize %d, got %d", mediumResCache, config.ResCacheSize)
+	}
+}
+
+func TestGetCacheConfig_Small(t *testing.T) {
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "small")
+	config := GetCacheConfig()
+
+	if config.Level != CacheSizeSmall {
+		t.Errorf("Expected level CacheSizeSmall, got %v", config.Level)
+	}
+	if config.RGCacheSize != smallRGCache {
+		t.Errorf("Expected RGCacheSize %d, got %d", smallRGCache, config.RGCacheSize)
+	}
+	if config.ResCacheSize != smallResCache {
+		t.Errorf("Expected ResCacheSize %d, got %d", smallResCache, config.ResCacheSize)
+	}
+}
+
+func TestGetCacheConfig_Large(t *testing.T) {
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "large")
+	config := GetCacheConfig()
+
+	if config.Level != CacheSizeLarge {
+		t.Errorf("Expected level CacheSizeLarge, got %v", config.Level)
+	}
+	if config.RGCacheSize != largeRGCache {
+		t.Errorf("Expected RGCacheSize %d, got %d", largeRGCache, config.RGCacheSize)
+	}
+	if config.ResCacheSize != largeResCache {
+		t.Errorf("Expected ResCacheSize %d, got %d", largeResCache, config.ResCacheSize)
+	}
+}
+
+func TestGetCacheConfig_CaseInsensitive(t *testing.T) {
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "LARGE")
+	config := GetCacheConfig()
+	if config.Level != CacheSizeLarge {
+		t.Errorf("Expected level CacheSizeLarge for uppercase, got %v", config.Level)
+	}
+
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "Small")
+	config = GetCacheConfig()
+	if config.Level != CacheSizeSmall {
+		t.Errorf("Expected level CacheSizeSmall for mixed case, got %v", config.Level)
+	}
+}
+
+func TestGetCacheConfig_ExplicitMedium(t *testing.T) {
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+
+	// Test explicit medium setting
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "medium")
+	config := GetCacheConfig()
+
+	if config.Level != CacheSizeMedium {
+		t.Errorf("Expected level CacheSizeMedium, got %v", config.Level)
+	}
+	if config.RGCacheSize != mediumRGCache {
+		t.Errorf("Expected RGCacheSize %d, got %d", mediumRGCache, config.RGCacheSize)
+	}
+	if config.ResCacheSize != mediumResCache {
+		t.Errorf("Expected ResCacheSize %d, got %d", mediumResCache, config.ResCacheSize)
+	}
+}
+
+func TestGetCacheConfig_Invalid(t *testing.T) {
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer func() {
+		if origVal == "" {
+			os.Unsetenv("LAZYAZURE_CACHE_SIZE")
+		} else {
+			os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+		}
+	}()
+
+	// Invalid values should default to medium
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "invalid")
+	config := GetCacheConfig()
+
+	if config.Level != CacheSizeMedium {
+		t.Errorf("Expected default level CacheSizeMedium for invalid value, got %v", config.Level)
+	}
+	if config.RGCacheSize != mediumRGCache {
+		t.Errorf("Expected medium RGCacheSize for invalid value, got %d", config.RGCacheSize)
+	}
+}
+
+func TestNewPreloadCacheWithConfig(t *testing.T) {
+	config := CacheConfig{
+		Level:            CacheSizeLarge,
+		RGCacheSize:      200,
+		ResCacheSize:     1000,
+		FullResCacheSize: 500,
+	}
+
+	cache := NewPreloadCacheWithConfig(config)
+
+	if cache.rgLimit != 200 {
+		t.Errorf("Expected rgLimit 200, got %d", cache.rgLimit)
+	}
+	if cache.resLimit != 1000 {
+		t.Errorf("Expected resLimit 1000, got %d", cache.resLimit)
+	}
+	if cache.fullResLimit != 500 {
+		t.Errorf("Expected fullResLimit 500, got %d", cache.fullResLimit)
+	}
+}
+
+func TestNewPreloadCache_EnvironmentVariable(t *testing.T) {
+	origVal := os.Getenv("LAZYAZURE_CACHE_SIZE")
+	defer os.Setenv("LAZYAZURE_CACHE_SIZE", origVal)
+
+	os.Setenv("LAZYAZURE_CACHE_SIZE", "large")
+	cache := NewPreloadCache()
+
+	if cache.rgLimit != largeRGCache {
+		t.Errorf("Expected rgLimit %d for large cache, got %d", largeRGCache, cache.rgLimit)
+	}
+	if cache.resLimit != largeResCache {
+		t.Errorf("Expected resLimit %d for large cache, got %d", largeResCache, cache.resLimit)
+	}
+}
+
+func TestParseCacheSizeLevel(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected CacheSizeLevel
+	}{
+		{"small", CacheSizeSmall},
+		{"SMALL", CacheSizeSmall},
+		{"Small", CacheSizeSmall},
+		{"medium", CacheSizeMedium},
+		{"MEDIUM", CacheSizeMedium},
+		{"large", CacheSizeLarge},
+		{"LARGE", CacheSizeLarge},
+		{"", CacheSizeMedium},        // empty defaults to medium
+		{"invalid", CacheSizeMedium}, // invalid defaults to medium
+		{"unknown", CacheSizeMedium},
+	}
+
+	for _, tc := range tests {
+		result := parseCacheSizeLevel(tc.input)
+		if result != tc.expected {
+			t.Errorf("parseCacheSizeLevel(%q) = %v, expected %v", tc.input, result, tc.expected)
+		}
 	}
 }
