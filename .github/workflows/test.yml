@@ -84,3 +84,6 @@ jobs:
 
     - name: Build
       run: make build-ci
+
+    - name: Print version info
+      run: ./lazyazure --version
