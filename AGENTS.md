@@ -427,6 +427,11 @@ LAZYAZURE_DEBUG=1 ./lazyazure
 LAZYAZURE_DEMO=1 ./lazyazure  # Small dataset: 2 subs, 4 RGs each, 2-4 resources
 LAZYAZURE_DEMO=2 ./lazyazure  # Large dataset: 15 subs, 20 RGs each, 15 resources (4,500 total)
 
+# Show help
+./lazyazure --help
+# or
+./lazyazure -h
+
 # Check version
 ./lazyazure --version
 # or

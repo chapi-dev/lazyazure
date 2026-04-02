@@ -94,10 +94,20 @@ See other methods under [authentication](#Authentication).
    lazyazure
    ```
 
+### Show Help
+
+```bash
+lazyazure --help
+# or
+lazyazure -h
+```
+
 ### Check Version
 
 ```bash
 lazyazure --version
+# or
+lazyazure -v
 ```
 
 ### Check for Updates

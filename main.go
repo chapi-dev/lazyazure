@@ -44,6 +44,7 @@ func GetVersionInfo() VersionInfo {
 type CLIArgs struct {
 	ShowVersion bool
 	CheckUpdate bool
+	ShowHelp    bool
 }
 
 // parseArgs parses command-line arguments and returns a CLIArgs struct
@@ -52,7 +53,9 @@ func parseArgs(args []string) (CLIArgs, error) {
 
 	if len(args) > 1 {
 		switch args[1] {
-		case "--version":
+		case "-h", "--help":
+			result.ShowHelp = true
+		case "-v", "--version":
 			result.ShowVersion = true
 		case "--check-update":
 			result.CheckUpdate = true
@@ -73,6 +76,25 @@ func printVersion(version, commit string) {
 	}
 
 	fmt.Printf("lazyazure %s (%s)\n", version, displayCommit)
+}
+
+// printHelp prints help information
+func printHelp() {
+	fmt.Println("LazyAzure - A TUI application for viewing Azure resources")
+	fmt.Println()
+	fmt.Println("Usage: lazyazure [options]")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  -h, --help          Show this help message")
+	fmt.Println("  -v, --version       Show version information")
+	fmt.Println("      --check-update  Check for available updates")
+	fmt.Println()
+	fmt.Println("Environment Variables:")
+	fmt.Println("  LAZYAZURE_DEBUG=1   Enable debug logging (logs to ~/.lazyazure/debug.log)")
+	fmt.Println("  LAZYAZURE_DEMO=1    Run with mock data (small dataset)")
+	fmt.Println("  LAZYAZURE_DEMO=2    Run with mock data (large dataset)")
+	fmt.Println()
+	fmt.Println("For more information, visit: https://github.com/matsest/lazyazure")
 }
 
 // GitHubRelease represents a GitHub release API response
@@ -171,8 +193,13 @@ func isDevelopmentBuild(version string) bool {
 	return false
 }
 
-// runCLI handles CLI commands (--version, --check-update) and returns exit code
+// runCLI handles CLI commands (--version, --check-update, --help) and returns exit code
 func runCLI(args CLIArgs, version, commit string, httpClient *http.Client, apiURL string) int {
+	if args.ShowHelp {
+		printHelp()
+		return 0
+	}
+
 	if args.ShowVersion {
 		printVersion(version, commit)
 		return 0
@@ -278,7 +305,8 @@ func main() {
 	args, err := parseArgs(os.Args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Usage: lazyazure [--version|--check-update]\n")
+		fmt.Fprintf(os.Stderr, "Usage: lazyazure [options]\n")
+		fmt.Fprintf(os.Stderr, "Run 'lazyazure --help' for more information.\n")
 		os.Exit(1)
 	}
 

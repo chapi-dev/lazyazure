@@ -24,15 +24,27 @@ func TestParseArgs(t *testing.T) {
 			want: CLIArgs{
 				ShowVersion: false,
 				CheckUpdate: false,
+				ShowHelp:    false,
 			},
 			wantErr: false,
 		},
 		{
-			name: "version flag",
+			name: "version flag long",
 			args: []string{"lazyazure", "--version"},
 			want: CLIArgs{
 				ShowVersion: true,
 				CheckUpdate: false,
+				ShowHelp:    false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "version flag short",
+			args: []string{"lazyazure", "-v"},
+			want: CLIArgs{
+				ShowVersion: true,
+				CheckUpdate: false,
+				ShowHelp:    false,
 			},
 			wantErr: false,
 		},
@@ -42,6 +54,27 @@ func TestParseArgs(t *testing.T) {
 			want: CLIArgs{
 				ShowVersion: false,
 				CheckUpdate: true,
+				ShowHelp:    false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "help flag long",
+			args: []string{"lazyazure", "--help"},
+			want: CLIArgs{
+				ShowVersion: false,
+				CheckUpdate: false,
+				ShowHelp:    true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "help flag short",
+			args: []string{"lazyazure", "-h"},
+			want: CLIArgs{
+				ShowVersion: false,
+				CheckUpdate: false,
+				ShowHelp:    true,
 			},
 			wantErr: false,
 		},
@@ -85,6 +118,9 @@ func TestParseArgs(t *testing.T) {
 			}
 			if got.CheckUpdate != tt.want.CheckUpdate {
 				t.Errorf("parseArgs() CheckUpdate = %v, want %v", got.CheckUpdate, tt.want.CheckUpdate)
+			}
+			if got.ShowHelp != tt.want.ShowHelp {
+				t.Errorf("parseArgs() ShowHelp = %v, want %v", got.ShowHelp, tt.want.ShowHelp)
 			}
 		})
 	}
@@ -153,6 +189,42 @@ func TestPrintVersion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPrintHelp(t *testing.T) {
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	printHelp()
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	output := buf.String()
+
+	// Check that help output contains expected sections
+	wantContains := []string{
+		"LazyAzure",
+		"Usage:",
+		"Options:",
+		"--help",
+		"--version",
+		"--check-update",
+		"Environment Variables:",
+		"LAZYAZURE_DEBUG",
+		"LAZYAZURE_DEMO",
+		"github.com/matsest/lazyazure",
+	}
+
+	for _, want := range wantContains {
+		if !strings.Contains(output, want) {
+			t.Errorf("printHelp() output should contain %q, got:\n%s", want, output)
+		}
 	}
 }
 
@@ -388,6 +460,15 @@ func TestRunCLI(t *testing.T) {
 		runsApp    bool
 		wantOutput []string
 	}{
+		{
+			name:       "show help",
+			args:       CLIArgs{ShowHelp: true},
+			version:    "v1.0.0",
+			commit:     "abc1234",
+			wantExit:   0,
+			runsApp:    false,
+			wantOutput: []string{"LazyAzure", "Usage:", "Options:", "Environment Variables:"},
+		},
 		{
 			name:       "show version",
 			args:       CLIArgs{ShowVersion: true},
