@@ -128,8 +128,14 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
 
 **Status:** Partially implemented - core features complete, advanced features in backlog
 
+**CLI Arguments**
+   - ✅ `--help` / `-h` - Show help message with environment variables
+   - ✅ `--version` / `-v` - Show version and commit information
+   - ✅ `--check-update` - Check for available updates (non-interactive)
+
 **Keyboard Shortcuts**
    - ✅ `/` for search (real-time filter across all panels)
+   - ✅ `n` / `N` to navigate between matches (main panel search)
    - ✅ `q` or `Ctrl+C` to quit
    - ✅ Arrow keys for navigation
    - ✅ `Tab` for switching right panel tabs
@@ -145,6 +151,13 @@ A TUI application for Azure resource management, inspired by lazydocker. It prov
 - ✅ Human-readable resource type names (e.g., "Virtual Machine" not "virtualMachines")
 - ✅ Sorted tags and properties
 - ✅ Case-insensitive resource type lookup
+
+**Main Panel Search** ✅
+- ✅ `/` to search within main/details panel (highlights matching lines)
+- ✅ `n` / `N` to navigate between matches
+- ✅ Case-insensitive search with yellow highlight for current match
+- ✅ Light grey highlight for other matches
+- ✅ Works on both Summary and JSON views
 
 **Navigation**
 - ✅ `q` or `Ctrl+C` to quit
@@ -178,6 +191,12 @@ The following features are planned but not yet implemented:
 - ✅ Escape to cancel, Enter to confirm
 - 📝 Fuzzy matching (future enhancement)
 
+### Portal Integration ✅ COMPLETE
+- ✅ `c` key copies Azure Portal link to clipboard
+- ✅ Cross-platform clipboard support (Linux: xclip/xsel/wl-copy, macOS/Windows: native)
+- ✅ Generates correct portal URLs for subscriptions, resource groups, and resources
+- ✅ Portal link includes resource ID path
+
 ### Navigation Improvements
 - `Esc` or `h` to navigate back up hierarchy
 - ✅ Open portal link in browser (cross-platform)
@@ -186,10 +205,12 @@ The following features are planned but not yet implemented:
 - ✅ Click Summary/JSON tabs to switch views
 
 ### Caching ✅ COMPLETE
-- ✅ In-memory cache for API responses (resource groups and resources)
-- ✅ Cache expiration/invalidation (TTL-based)
-- ✅ Background preloading
-- 📝 Cache size limits (future: LRU eviction)
+- ✅ Three-tier cache system (RG lists, resource lists, full resource details)
+- ✅ In-memory cache for API responses with size limits (100/500 entries)
+- ✅ Cache expiration/invalidation (TTL-based: 5min for RGs, 3min for resources)
+- ✅ LRU eviction (50% when cache is full)
+- ✅ Smart invalidation on refresh (panel-specific)
+- ✅ Background preloading for top 10 RGs
 
 ### Configuration
 - Config file support (`~/.config/lazyazure/config.yml`)
@@ -204,6 +225,9 @@ The following features are planned but not yet implemented:
 
 ### Performance
 - ✅ Background loading (preloading)
+  - Resource groups preloaded after subscription selection
+  - Top 10 RG resources preloaded in background
+  - Silent operation (no UI updates if user navigates away)
 - UI-level pagination controls
 - Virtual scrolling for large lists
 - Optimistic updates
@@ -213,49 +237,23 @@ The following features are planned but not yet implemented:
 
 ## Project Structure
 
+See [AGENTS.md](AGENTS.md) for the complete file organization and architecture details.
+
+High-level overview:
 ```
 lazyazure/
-├── main.go                       # Entry point
-├── go.mod
-├── go.sum
-├── LICENSE                       # MIT License
-├── README.md                     # User documentation
-├── AGENTS.md                     # Development guidelines for AI agents
-├── PLAN.md                       # This file - implementation roadmap
+├── main.go              # Entry point (refactored for testability)
+├── main_test.go         # CLI tests (argument parsing, version checking)
 ├── pkg/
-│   ├── azure/
-│   │   ├── client.go            # Azure SDK wrapper with DefaultAzureCredential
-│   │   ├── client_test.go       # Azure client tests
-│   │   ├── subscriptions.go     # Subscription operations
-│   │   ├── resourcegroups.go    # Resource group operations
-│   │   ├── resourcegroups_test.go # RG tests
-│   │   ├── resources.go         # Generic resource operations
-│   │   └── api_versions.go      # Dynamic API version lookup
-│   ├── domain/
-│   │   ├── user.go              # User domain model
-│   │   ├── subscription.go      # Subscription domain model
-│   │   ├── resourcegroup.go     # ResourceGroup domain model
-│   │   ├── resource.go          # Generic Resource domain model
-│   │   └── domain_test.go       # Domain model tests
-│   ├── resources/
-│   │   ├── display_names.go     # Resource type display name loader
-│   │   ├── display_names.json   # Human-readable resource type mappings
-│   │   └── display_names_test.go # Display name tests
-│   ├── gui/
-│   │   ├── gui.go               # Main GUI controller with all TUI logic
-│   │   ├── gui_test.go          # GUI tests
-│   │   └── panels/
-│   │       ├── filtered_list.go          # Generic filtered list component
-│   │       ├── filtered_list_test.go     # Filtered list tests
-│   │       ├── search_bar.go             # Search bar UI component
-│   │       ├── search_bar_test.go        # Search bar tests
-│   │       ├── main_panel_search.go      # Main panel search (highlighting)
-│   │       └── main_panel_search_test.go # Main panel search tests
-│   ├── tasks/
-│   │   ├── tasks.go             # Async task management
-│   │   └── tasks_test.go        # Task manager tests
-│   └── utils/
-│       └── logger.go            # Debug logging (opt-in via LAZYAZURE_DEBUG)
+│   ├── azure/           # Azure SDK clients with caching
+│   ├── demo/            # Demo mode (mock Azure data)
+│   ├── domain/          # Domain models (Subscription, ResourceGroup, Resource)
+│   ├── resources/       # Resource type display names
+│   ├── gui/             # TUI implementation with panels
+│   ├── tasks/           # Async task management
+│   └── utils/           # Utilities (logging, clipboard, browser, portal URLs)
+├── scripts/             # TUI integration test scripts (tmux-based)
+└── tools/               # Development tools (API version updater)
 ```
 
 ---
@@ -291,12 +289,16 @@ lazyazure/
 - [x] Scrollable content in details panel
 - [x] Sorted and formatted display of tags and properties
 
-## Phase 4 Success Criteria (Partial)
+## Phase 4 Success Criteria (Mostly Complete)
 
 - [x] Resource type display names (human-readable)
 - [x] Gray suffix formatting for all sidebar items
 - [x] Copy portal link to clipboard
 - [x] Search/filter functionality (real-time, case-insensitive)
+- [x] Main panel search with highlighting and navigation
+- [x] CLI arguments (--help, --version, --check-update)
+- [x] API response caching with size limits and TTL
+- [x] Background preloading for resource groups and resources
 - [ ] Configuration file support
-- [ ] API response caching
-- [ ] Background refresh
+- [ ] Background refresh (auto-refresh on timer)
+- [ ] Further performance improvements
