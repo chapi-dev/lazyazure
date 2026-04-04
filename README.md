@@ -28,16 +28,17 @@ gifsicle --resize-width 1000 --optimize=3 --colors=128 -o demo_optimized.gif dem
   - Summary view with color-coded keys and formatted nested properties
   - JSON view with syntax highlighting
   - Scrollable content for long resource details
-- **Intuitive Navigation**:
+- **Keyboard and Mouse Navigation**:
   - Tab/Shift+Tab to cycle between panels
-  - Enter to drill down hierarchy
+  - Arrows to navigate in panels
+  - Enter/click to drill down hierarchy
   - Visual focus indicators (green border on active panel)
-  - Mouse support
+  - Mouse support (click, scrolling)
 - **Search & Filter**: Real-time search with `/` key across all panels (matches displayed text including suffixes)
 - **Open portal link**: Open portal link to subscription, resource group or resource in browser
 - **Copy portal link**: Copy link to subscription, resource group or resource to clipboard
 - **Smart Resource Loading**: Fetches full resource details with provider-specific API versions
-- **Intelligent Caching**: Background preloading and multi-tier caching for instant navigation between previously viewed resources
+- **Background Preloading and Caching**: Background preloading and multi-tier caching for instant navigation between previously viewed resources
 
 See [PLAN.md](./PLAN.md) for implementation details and roadmap.
 
@@ -58,10 +59,9 @@ See [PLAN.md](./PLAN.md) for implementation details and roadmap.
 - Azure account with appropriate permissions
 - Azure CLI installed (optional, for `az login` convenience method)
 
-### Install Pre-built Binaries
+### Install Pre-built Binaries (Recommended)
 
 Download pre-built binaries for Linux, macOS, and Windows from the [releases page](https://github.com/matsest/lazyazure/releases/latest). Each release includes installation instructions specific to that version.
-
 
 ### Install from Source
 
@@ -83,15 +83,10 @@ make build
 
 ### Quick Start
 
-1. **Authenticate** (choose one method):
+1. **Authenticate**
    ```bash
-   # Option A: Azure CLI (easiest for local development)
+   # Azure CLI example
    az login
-   
-   # Option B: Environment variables
-   export AZURE_CLIENT_ID="your-client-id"
-   export AZURE_CLIENT_SECRET="your-client-secret"
-   export AZURE_TENANT_ID="your-tenant-id"
    ```
 
 See other methods under [authentication](#Authentication).
@@ -104,17 +99,13 @@ See other methods under [authentication](#Authentication).
 ### Show Help
 
 ```bash
-lazyazure --help
-# or
-lazyazure -h
+lazyazure --help # short: -h
 ```
 
 ### Check Version
 
 ```bash
-lazyazure --version
-# or
-lazyazure -v
+lazyazure --version # short: -v
 ```
 
 ### Check for Updates
@@ -144,6 +135,7 @@ Note: Development builds (e.g., `dev`, `-dirty`, or commits ahead of a tag) skip
 - **Click panels**: Focus any panel (Subscriptions, Resource Groups, Resources, or Details)
 - **Click list items**: Select and trigger Enter action (same as pressing Enter)
 - **Click tabs**: Switch between Summary and JSON views in the details panel
+- **Scroll**: Navigate items in current panel
 
 **Search:**
 - **/**: Activate search mode for current panel (matches name, location, type, etc.)
@@ -155,12 +147,12 @@ Note: Development builds (e.g., `dev`, `-dirty`, or commits ahead of a tag) skip
 - **Escape**: Cancel search and clear filter
 
 **View Controls:**
-- **[ / ]**: Switch between Summary and JSON tabs
+- **[ and ]**: Switch between Summary and JSON tabs
   - Summary: Color-coded keys (green) with formatted values
   - JSON: Syntax highlighted with proper formatting
 - **↑ / ↓** or **j / k** (in details panel): Scroll content up/down
 - **PgUp / PgDn**: Scroll content by page
-- **r**: Refresh current data
+- **r**: Refresh current panel data
 
 **Main Panel Search (when viewing resource details):**
 - **/**: Search within the details panel (highlights matching lines)
@@ -225,7 +217,7 @@ To enable debug logging for troubleshooting, set the `LAZYAZURE_DEBUG` environme
 LAZYAZURE_DEBUG=1 lazyazure
 ```
 
-Debug logs are written to `~/.lazyazure/debug.log`.
+Debug logs are written to `~/.lazyazure/debug.log`. The file is overwritten for each run of the program.
 
 To view logs:
 ```bash
@@ -239,7 +231,7 @@ LazyAzure caches resource groups and resources to improve performance. You can c
 | Size   | RG Cache | Resource Cache | Approx Memory | Best For                          |
 | ------ | -------- | -------------- | ------------- | --------------------------------- |
 | small  | 100      | 500            | ~20-40 MB     | Low memory environments (<4GB)    |
-| medium | 300      | 1,500          | ~60-120 MB    | **Default** - Most users          |
+| medium | 300      | 1,500          | ~60-120 MB    | **Default value** - Most users        |
 | large  | 600      | 3,000          | ~120-240 MB   | 100+ subscriptions, high activity |
 
 **Examples:**
