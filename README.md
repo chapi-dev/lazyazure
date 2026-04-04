@@ -11,7 +11,14 @@ A TUI application for viewing Azure resources, inspired by [lazydocker](https://
 
 > **About This Project**: Built through AI pair programming with [OpenCode](https://opencode.ai). See [AGENTS.md](AGENTS.md) for development guidelines and [Security](#Security) for security information. It is provided as-is without warranties ([MIT License](./LICENSE)).
 
-![demo](./demo.png)
+<!--
+To create demo GIF
+asciinema rec -c "LAZYAZURE_DEMO=1 ./lazyazure" demo.cast
+agg --font-family "CaskaydiaMono Nerd Font" --renderer "fontdue" --theme "github-dark" --line-height 1.2 --speed 1.5 demo.cast demo.gif
+gifsicle --resize-width 1000 --optimize=3 --colors=128 -o demo_optimized.gif demo.gif
+-->
+
+![demo](./demo.gif)
 
 ## Features
 
