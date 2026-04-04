@@ -1219,6 +1219,91 @@ func TestSemaphore_MaxConcurrentPreloadsConstant(t *testing.T) {
 	}
 }
 
+func TestSemaphore_ConcurrentAcquireRelease(t *testing.T) {
+	// Small capacity to force contention
+	sem := NewSemaphore(5)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	numGoroutines := 20
+	numIterations := 10
+
+	// Counter protected by semaphore (via capacity limit)
+	counter := 0
+	var counterMu sync.Mutex
+	maxObserved := 0
+	var maxMu sync.Mutex
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				// Acquire semaphore
+				if err := sem.Acquire(ctx); err != nil {
+					t.Errorf("Goroutine %d: Failed to acquire: %v", id, err)
+					return
+				}
+
+				// Critical section - increment counter
+				counterMu.Lock()
+				counter++
+				current := counter
+				counterMu.Unlock()
+
+				// Verify semaphore is working (capacity not exceeded)
+				inUse, capacity := sem.GetUtilization()
+				if inUse > capacity {
+					t.Errorf("Goroutine %d: Semaphore exceeded capacity: %d/%d", id, inUse, capacity)
+				}
+				if inUse < 1 || inUse > 5 {
+					t.Errorf("Goroutine %d: Semaphore inUse should be 1-5, got %d", id, inUse)
+				}
+
+				// Track max concurrent (protected by being in critical section)
+				maxMu.Lock()
+				if inUse > maxObserved {
+					maxObserved = inUse
+				}
+				maxMu.Unlock()
+
+				// Small delay to increase chance of race detection in semaphore
+				time.Sleep(time.Microsecond * 10)
+
+				// Verify counter is still at least at our value (no negative races)
+				counterMu.Lock()
+				if counter < current {
+					t.Errorf("Goroutine %d: Counter decreased: %d -> %d", id, current, counter)
+				}
+				counterMu.Unlock()
+
+				// Release semaphore
+				sem.Release()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify final counter
+	expected := numGoroutines * numIterations
+	if counter != expected {
+		t.Errorf("Expected counter to be %d, got %d", expected, counter)
+	}
+
+	// Verify we actually had contention (reached near capacity)
+	if maxObserved < 4 {
+		t.Errorf("Expected semaphore to reach near capacity (4-5), but max was %d", maxObserved)
+	}
+	t.Logf("Max semaphore utilization: %d/5", maxObserved)
+
+	// Verify semaphore is empty
+	inUse, _ := sem.GetUtilization()
+	if inUse != 0 {
+		t.Errorf("Expected semaphore to be empty, got %d in use", inUse)
+	}
+}
+
 func TestPreloadCache_TryStartRGLoading(t *testing.T) {
 	cache := NewPreloadCacheWithConfig(CacheConfig{
 		RGCacheSize:      100,

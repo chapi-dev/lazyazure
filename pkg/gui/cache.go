@@ -119,10 +119,8 @@ type cachedFullResource struct {
 
 // Semaphore provides a weighted semaphore for limiting concurrent operations
 type Semaphore struct {
-	ch    chan struct{}
-	cap   int
-	mu    sync.RWMutex
-	inUse int
+	ch  chan struct{}
+	cap int
 }
 
 // NewSemaphore creates a new semaphore with the given capacity
@@ -138,9 +136,6 @@ func NewSemaphore(n int) *Semaphore {
 func (s *Semaphore) Acquire(ctx context.Context) error {
 	select {
 	case s.ch <- struct{}{}:
-		s.mu.Lock()
-		s.inUse++
-		s.mu.Unlock()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -151,19 +146,16 @@ func (s *Semaphore) Acquire(ctx context.Context) error {
 func (s *Semaphore) Release() {
 	select {
 	case <-s.ch:
-		s.mu.Lock()
-		s.inUse--
-		s.mu.Unlock()
+		// Successfully released a slot
 	default:
-		// Should never happen - releasing without acquiring
+		// Channel empty - release without acquire (shouldn't happen in correct usage)
 	}
 }
 
 // GetUtilization returns current semaphore usage stats (inUse, capacity)
 func (s *Semaphore) GetUtilization() (inUse, capacity int) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.inUse, s.cap
+	// Channel length gives us current in-use count
+	return len(s.ch), s.cap
 }
 
 // PreloadCache provides in-memory caching for resource groups and resources
