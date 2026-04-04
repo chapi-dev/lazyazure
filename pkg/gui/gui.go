@@ -34,6 +34,22 @@ const grayColor = "\x1b[38;5;245m"
 const resetColor = "\x1b[0m"
 const loadingSymbol = "↻"
 
+// Timing constants
+const (
+	APITimeout             = 30 * time.Second
+	ShortAPITimeout        = 10 * time.Second
+	VersionCheckTimeout    = 10 * time.Second
+	HTTPClientTimeout      = 10 * time.Second
+	VersionDisplayDuration = 5 * time.Second
+	StatusMessageDuration  = 2 * time.Second
+	SemaphoreWaitThreshold = 100 * time.Millisecond
+)
+
+// Layout constants (in lines/characters)
+const (
+	AuthViewHeight = 5 // Height of the auth panel
+)
+
 // formatWithGraySuffix formats a name with a gray suffix in parentheses
 func formatWithGraySuffix(name, suffix string) string {
 	if suffix == "" {
@@ -292,7 +308,7 @@ func (gui *Gui) setupViews() error {
 
 	// Calculate heights for stacked panels
 	// Auth: 5 lines, then distribute remaining: 20% subscriptions, 30% RGs, ~50% resources
-	authHeight := 5
+	authHeight := AuthViewHeight
 	remainingHeight := maxY - authHeight - 2 // -2 for status bar
 	// Divide remaining space: 20% for subscriptions, 30% for RGs, rest for resources
 	subHeight := remainingHeight / 5       // 20%
@@ -1336,7 +1352,7 @@ func (gui *Gui) loadUserInfo() {
 	})
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), ShortAPITimeout)
 		defer cancel()
 
 		user, err := gui.azureClient.GetUserInfo(ctx)
@@ -2536,7 +2552,7 @@ func (gui *Gui) showTemporaryStatus(message string) {
 
 	// Restore normal status after 2 seconds
 	go func() {
-		time.Sleep(2 * time.Second)
+		time.Sleep(StatusMessageDuration)
 		gui.g.UpdateAsync(func(g *gocui.Gui) error {
 			gui.updateStatus()
 			return nil
@@ -3554,7 +3570,7 @@ func (gui *Gui) showVersionInfo(g *gocui.Gui, v *gocui.View) error {
 	})
 
 	// Start auto-revert timer (5 seconds)
-	gui.versionTimer = time.AfterFunc(5*time.Second, func() {
+	gui.versionTimer = time.AfterFunc(VersionDisplayDuration, func() {
 		gui.g.UpdateAsync(func(g *gocui.Gui) error {
 			gui.clearVersionDisplay()
 			return nil
@@ -3579,7 +3595,7 @@ func (gui *Gui) clearVersionDisplay() {
 
 // checkLatestVersion fetches the latest release from GitHub
 func (gui *Gui) checkLatestVersion() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ShortAPITimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/matsest/lazyazure/releases/latest", nil)
@@ -3592,7 +3608,7 @@ func (gui *Gui) checkLatestVersion() {
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "lazyazure")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: HTTPClientTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		utils.Log("checkLatestVersion: Failed to fetch release: %v", err)
@@ -3860,7 +3876,7 @@ func (gui *Gui) preloadResourceGroups(subscriptionID string) {
 		return
 	}
 	acquireDuration := time.Since(acquireStart)
-	if acquireDuration > 100*time.Millisecond {
+	if acquireDuration > SemaphoreWaitThreshold {
 		inUse, capacity := semaphore.GetUtilization()
 		utils.Log("preloadResourceGroups: Waited %v for semaphore slot (%d/%d in use)", acquireDuration, inUse, capacity)
 	}
@@ -3938,7 +3954,7 @@ func (gui *Gui) preloadTopResources(subscriptionID string, rgs []*domain.Resourc
 			continue
 		}
 		acquireDuration := time.Since(acquireStart)
-		if acquireDuration > 100*time.Millisecond {
+		if acquireDuration > SemaphoreWaitThreshold {
 			inUse, capacity := semaphore.GetUtilization()
 			utils.Log("preloadTopResources: Waited %v for semaphore slot (RG #%d, %d/%d in use)", acquireDuration, i, inUse, capacity)
 		}
