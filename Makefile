@@ -48,6 +48,10 @@ all: test build
 test-coverage:
 	go test -cover ./...
 
+.PHONY: test-race
+test-race:
+	go test -race ./...
+
 .PHONY: lint
 lint:
 	go vet ./...

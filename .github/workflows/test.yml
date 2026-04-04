@@ -92,3 +92,6 @@ jobs:
 
     - name: Print version info
       run: ./lazyazure --version
+
+    - name: Run tests with race detector
+      run: make test-race
