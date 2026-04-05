@@ -136,6 +136,8 @@ Note: Development builds (e.g., `dev`, `-dirty`, or commits ahead of a tag) skip
 - **Click list items**: Select and trigger Enter action (same as pressing Enter)
 - **Click tabs**: Switch between Summary and JSON views in the details panel
 - **Scroll**: Navigate items in current panel
+- **Right Click list items**: Copy portal url (same as 'c' shortcut)
+- **Middle Click list items**: Open portal url (same as 'o' shortcut)
 
 **Search:**
 - **/**: Activate search mode for current panel (matches name, location, type, etc.)
@@ -167,8 +169,8 @@ Note: Development builds (e.g., `dev`, `-dirty`, or commits ahead of a tag) skip
 
 **Application:**
 - **q** or **Ctrl+C**: Quit
-- **c**: Copy portal link to clipboard
-- **o**: Open portal link in browser
+- **c**: Copy portal link to clipboard (option: Mouse Right click)
+- **o**: Open portal link in browser (alternative: Mouse Middle click)
 - **?**: Show version information and check for updates (auto-dismisses after 5 seconds or press Escape)
 
 ## Authentication

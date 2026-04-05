@@ -450,6 +450,35 @@ LAZYAZURE_CACHE_SIZE=large ./lazyazure    # 600/3000 cache
 - `NewPreloadCache()` - Uses environment-based config automatically (defaults to medium)
 - `NewPreloadCacheWithConfig()` - Allows explicit configuration for testing
 
+### 5.x gocui Local Patch Workaround
+
+LazyAzure uses a local patched version of gocui to fix upstream bugs (e.g., MouseRight/MouseMiddle not working in v0.3.1+).
+
+**Structure:**
+```
+vendor_gocui/                  # Local copy of gocui with patches applied
+scripts/gocui-mouse-right.patch  # Standalone patch file for the fix
+```
+
+**go.mod uses replace directive:**
+```
+replace github.com/jesseduffield/gocui => ./vendor_gocui
+```
+
+**To update when upstream releases a fixed version:**
+```bash
+# 1. Copy new upstream gocui version
+cp -r /path/to/new/gocui/* vendor_gocui/
+
+# 2. Reapply patch
+cd vendor_gocui && patch -p1 < ../scripts/gocui-mouse-right.patch
+
+# 3. Test, then update go.mod to new version and remove replace directive
+```
+
+**Current patches applied:**
+- MouseRight/MouseMiddle click events now work correctly (were silently discarded)
+
 ### 6. Testing
 
 **CRITICAL: Always add or update tests when making changes.**

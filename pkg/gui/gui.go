@@ -590,10 +590,16 @@ func (gui *Gui) setupKeybindings() error {
 	if err := gui.g.SetKeybinding("", 'c', gocui.ModNone, gui.copyPortalUrl); err != nil {
 		return err
 	}
+	if err := gui.g.SetKeybinding("", gocui.MouseRight, gocui.ModNone, gui.copyPortalUrl); err != nil {
+		return err
+	}
 	utils.Log("setupKeybindings: Copy portal link key set")
 
 	// Open portal link in browser (global)
 	if err := gui.g.SetKeybinding("", 'o', gocui.ModNone, gui.openPortalUrl); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("", gocui.MouseMiddle, gocui.ModNone, gui.openPortalUrl); err != nil {
 		return err
 	}
 	utils.Log("setupKeybindings: Open portal link key set")
@@ -2485,9 +2491,11 @@ func (gui *Gui) copyPortalUrl(g *gocui.Gui, v *gocui.View) error {
 	// Copy to clipboard
 	if err := utils.CopyToClipboard(url); err != nil {
 		gui.showTemporaryStatus(fmt.Sprintf("Failed to copy: %v", err))
+		utils.Log("copyPortalUrl: failed to copy %s URL to clipboard", itemType)
 		return nil
 	}
 
+	utils.Log("copyPortalUrl: copied %s URL to clipboard", itemType)
 	gui.showTemporaryStatus(fmt.Sprintf("Copied %s portal link to clipboard", itemType))
 	return nil
 }
@@ -2535,9 +2543,11 @@ func (gui *Gui) openPortalUrl(g *gocui.Gui, v *gocui.View) error {
 	// Open in browser
 	if err := utils.OpenBrowser(url); err != nil {
 		gui.showTemporaryStatus(fmt.Sprintf("Failed to open browser: %v", err))
+		utils.Log("openPortalUrl: failed to open %s URL in browser", itemType)
 		return nil
 	}
 
+	utils.Log("openPortalUrl: opened %s URL in browser", itemType)
 	gui.showTemporaryStatus(fmt.Sprintf("Opening %s portal link in browser", itemType))
 	return nil
 }

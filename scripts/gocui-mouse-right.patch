@@ -1,0 +1,23 @@
+--- /home/matsest/go/pkg/mod/github.com/jesseduffield/gocui@v0.3.1-0.20260327132312-944dab3bc980/tcell_driver.go	2026-04-05 09:54:03.250650975 +0200
++++ vendor_gocui/tcell_driver.go	2026-04-05 11:43:17.596418586 +0200
+@@ -364,8 +364,10 @@
+ 				lastY = y
+ 			case tcell.ButtonSecondary:
+ 				mouseKey = MouseRight
++				dragState = MAYBE_DRAGGING
+ 			case tcell.ButtonMiddle:
+ 				mouseKey = MouseMiddle
++				dragState = MAYBE_DRAGGING
+ 			default:
+ 			}
+ 		}
+@@ -377,7 +379,9 @@
+ 				case tcell.ButtonPrimary:
+ 					dragState = NOT_DRAGGING
+ 				case tcell.ButtonSecondary:
++					dragState = NOT_DRAGGING
+ 				case tcell.ButtonMiddle:
++					dragState = NOT_DRAGGING
+ 				default:
+ 				}
+ 				mouseMod = Modifier(lastMouseMod)
