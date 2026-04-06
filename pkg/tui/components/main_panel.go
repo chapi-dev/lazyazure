@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Tab represents a tab in the main panel
@@ -14,6 +15,8 @@ const (
 	SummaryTab Tab = iota
 	JSONTab
 )
+
+var tabNames = []string{"Summary", "JSON"}
 
 // MainPanel is the details panel with Summary/JSON tabs
 type MainPanel struct {
@@ -41,8 +44,9 @@ func NewMainPanel() *MainPanel {
 func (mp *MainPanel) SetSize(width, height int) {
 	mp.width = width
 	mp.height = height
+	// Account for tab bar (1 line) and borders
 	mp.viewport.Width = width - 2
-	mp.viewport.Height = height - 2 // Account for borders only (tabs are now in border title)
+	mp.viewport.Height = height - 3
 }
 
 // SetActive sets whether this panel is currently focused
@@ -197,26 +201,82 @@ func (mp *MainPanel) Update(msg tea.Msg) (*MainPanel, tea.Cmd) {
 	return mp, cmd
 }
 
-// View renders the main panel
-func (mp *MainPanel) View() string {
-	styles := NewStyles()
+// tabBorderWithBottom creates a custom border for tabs
+func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
+	border := lipgloss.RoundedBorder()
+	border.BottomLeft = left
+	border.Bottom = middle
+	border.BottomRight = right
+	return border
+}
 
-	// Determine border style
-	panelStyle := styles.InactivePanel
+// View renders the main panel with nice tabs
+func (mp *MainPanel) View() string {
+	// Get the border color based on active state
+	borderColor := BorderColorInactive
 	if mp.active {
-		panelStyle = styles.ActivePanel
+		borderColor = BorderColorActive
 	}
 
-	// Get viewport content (no internal tab bar - tabs are in border title now)
+	// Create tab styles
+	inactiveTabBorder := tabBorderWithBottom("┴", "─", "┴")
+	activeTabBorder := tabBorderWithBottom("┘", " ", "└")
+
+	inactiveTabStyle := lipgloss.NewStyle().
+		Border(inactiveTabBorder).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Foreground(WhiteColor)
+
+	activeTabStyle := inactiveTabStyle.
+		Border(activeTabBorder).
+		Foreground(GreenColor).
+		Bold(true)
+
+	// Content window style - no top border to connect with tabs
+	windowStyle := lipgloss.NewStyle().
+		BorderForeground(borderColor).
+		Border(lipgloss.RoundedBorder()).
+		UnsetBorderTop().
+		Width(mp.width).
+		Height(mp.height - 1) // Account for tab row
+
+	// Render tabs
+	var renderedTabs []string
+	for i, name := range tabNames {
+		var style lipgloss.Style
+		isFirst, isLast, isActive := i == 0, i == len(tabNames)-1, Tab(i) == mp.tab
+
+		if isActive {
+			style = activeTabStyle
+		} else {
+			style = inactiveTabStyle
+		}
+
+		border, _, _, _, _ := style.GetBorder()
+		if isFirst && isActive {
+			border.BottomLeft = "│"
+		} else if isFirst && !isActive {
+			border.BottomLeft = "├"
+		} else if isLast && isActive {
+			border.BottomRight = "│"
+		} else if isLast && !isActive {
+			border.BottomRight = "┤"
+		}
+		style = style.Border(border)
+
+		renderedTabs = append(renderedTabs, style.Render(name))
+	}
+
+	// Join tabs horizontally
+	tabsRow := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+
+	// Get viewport content
 	content := mp.viewport.View()
 
-	// Apply size and render
-	rendered := panelStyle.
-		Width(mp.width).
-		Height(mp.height).
-		Render(content)
+	// Render content window with matching width
+	contentWindow := windowStyle.Width(lipgloss.Width(tabsRow)).Render(content)
 
-	// Create tab-style border title: "Summary | JSON" with active tab highlighted
-	tabTitle := TabTitle(mp.tab == SummaryTab)
-	return EmbedBorderTitle(rendered, tabTitle)
+	// Combine tabs and content
+	return lipgloss.JoinVertical(lipgloss.Left, tabsRow, contentWindow)
 }

@@ -127,27 +127,6 @@ func FormatWithGraySuffix(name, suffix string) string {
 	return name + " " + suffixStyle.Render("("+suffix+")")
 }
 
-// TabTitle creates a tab-style title like "Summary | JSON" with active tab highlighted
-// This is used for the main panel border title
-func TabTitle(summaryActive bool) string {
-	separatorStyle := lipgloss.NewStyle().Foreground(GrayColor)
-	inactiveStyle := lipgloss.NewStyle().Foreground(WhiteColor)
-	activeStyle := lipgloss.NewStyle().Foreground(GreenColor).Bold(true)
-
-	separator := separatorStyle.Render(" | ")
-
-	var summaryTab, jsonTab string
-	if summaryActive {
-		summaryTab = activeStyle.Render("Summary")
-		jsonTab = inactiveStyle.Render("JSON")
-	} else {
-		summaryTab = inactiveStyle.Render("Summary")
-		jsonTab = activeStyle.Render("JSON")
-	}
-
-	return summaryTab + separator + jsonTab
-}
-
 // EmbedBorderTitle embeds a title into the top border line of a rendered box.
 // This creates a gocui-style inline title that sits on the border itself,
 // saving one line of vertical space compared to rendering the title inside.
