@@ -1,6 +1,8 @@
 package components
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -132,6 +134,39 @@ func (mp *MainPanel) ScrollTop() {
 // ScrollBottom scrolls to the bottom
 func (mp *MainPanel) ScrollBottom() {
 	mp.viewport.GotoBottom()
+}
+
+// GetContentLines returns the current content split into lines
+func (mp *MainPanel) GetContentLines() []string {
+	var content string
+	switch mp.tab {
+	case SummaryTab:
+		content = mp.summaryText
+	case JSONTab:
+		content = mp.jsonText
+	}
+	return strings.Split(content, "\n")
+}
+
+// SetHighlightedContent sets the viewport content with search highlights
+func (mp *MainPanel) SetHighlightedContent(lines []string) {
+	content := strings.Join(lines, "\n")
+	mp.viewport.SetContent(content)
+}
+
+// GotoLine scrolls to make the specified line visible
+func (mp *MainPanel) GotoLine(lineNum int) {
+	// viewport.YOffset is the top visible line
+	// We want to center the match if possible
+	visibleLines := mp.viewport.Height
+	halfVisible := visibleLines / 2
+
+	targetY := lineNum - halfVisible
+	if targetY < 0 {
+		targetY = 0
+	}
+
+	mp.viewport.YOffset = targetY
 }
 
 // Update handles messages for the main panel

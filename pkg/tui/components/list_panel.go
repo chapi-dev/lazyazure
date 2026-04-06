@@ -149,6 +149,11 @@ func (lp *ListPanel[T]) IsFiltering() bool {
 	return lp.list.IsFiltering()
 }
 
+// GetFilterText returns the current filter text
+func (lp *ListPanel[T]) GetFilterText() string {
+	return lp.list.GetFilterText()
+}
+
 // GetFilterStats returns showing/total counts
 func (lp *ListPanel[T]) GetFilterStats() (showing, total int) {
 	return lp.list.GetFilterStats()

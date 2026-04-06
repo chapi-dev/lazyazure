@@ -2,11 +2,17 @@
 package tui
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/matsest/lazyazure/pkg/domain"
 	"github.com/matsest/lazyazure/pkg/gui"
+	"github.com/matsest/lazyazure/pkg/gui/panels"
 	"github.com/matsest/lazyazure/pkg/tui/components"
 )
 
@@ -49,11 +55,15 @@ type Model struct {
 	resListPanel *components.ListPanel[*domain.Resource]
 	mainPanel    *components.MainPanel
 	statusBar    *components.StatusBar
+	searchInput  textinput.Model
 
 	// UI State
-	activePanel    ActivePanel
-	showingVersion bool
-	searchMode     bool
+	activePanel     ActivePanel
+	showingVersion  bool
+	versionTimer    *time.Timer
+	searchMode      bool
+	searchingMain   bool
+	mainPanelSearch *panels.MainPanelSearch
 
 	// Demo mode
 	isDemo bool
@@ -167,8 +177,22 @@ func NewModel(azureClient gui.AzureClient, clientFactory gui.AzureClientFactory,
 	m.mainPanel = components.NewMainPanel()
 	m.statusBar = components.NewStatusBar()
 
+	// Initialize search input
+	m.searchInput = textinput.New()
+	m.searchInput.Placeholder = "Search..."
+	m.searchInput.CharLimit = 100
+
+	// Initialize main panel search
+	m.mainPanelSearch = panels.NewMainPanelSearch()
+
 	// Calculate initial layout
 	m.calculateLayout()
+
+	// Set initial panel states (subscriptions panel active)
+	m.updatePanelStates()
+
+	// Set initial status bar text
+	m.updateStatusBar()
 
 	return m
 }
@@ -231,35 +255,601 @@ func (m *Model) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "tab":
-			m.nextPanel()
-		case "shift+tab":
-			m.prevPanel()
-		case "up", "down", "j", "k", "pgup", "pgdown":
-			return m.handleNavigation(msg)
-		case "enter":
-			return m.handleEnter()
-		case "[":
-			if m.activePanel == MainPanel {
-				m.mainPanel.PrevTab()
-			}
-		case "]":
-			if m.activePanel == MainPanel {
-				m.mainPanel.NextTab()
-			}
+		// Handle global keys first
+		if handled, cmd := m.handleGlobalKeys(msg); handled {
+			return m, cmd
 		}
+
+		// Handle search mode
+		if m.searchMode {
+			return m.handleSearchMode(msg)
+		}
+
+		// Handle main panel search mode
+		if m.searchingMain {
+			return m.handleMainPanelSearchMode(msg)
+		}
+
+		// Handle panel-specific keys
+		return m.handlePanelKeys(msg)
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.calculateLayout()
+
+	case ClearVersionMsg:
+		m.showingVersion = false
+		m.updateStatusBar()
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	}
 
+	// Update search input if in search mode
+	if m.searchMode {
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// ClearVersionMsg is sent when version display should be cleared
+type ClearVersionMsg struct{}
+
+// handleGlobalKeys handles keys that work from any panel
+func (m *Model) handleGlobalKeys(msg tea.KeyMsg) (bool, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return true, tea.Quit
+
+	case "tab":
+		m.nextPanel()
+		return true, nil
+
+	case "shift+tab":
+		m.prevPanel()
+		return true, nil
+
+	case "?":
+		cmd := m.showVersion()
+		return true, cmd
+
+	case "esc":
+		if m.showingVersion {
+			m.clearVersionDisplay()
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// handlePanelKeys handles keys that depend on the active panel
+func (m *Model) handlePanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.activePanel {
+	case SubscriptionsPanel:
+		return m.handleSubscriptionKeys(msg)
+	case ResourceGroupsPanel:
+		return m.handleResourceGroupKeys(msg)
+	case ResourcesPanel:
+		return m.handleResourceKeys(msg)
+	case MainPanel:
+		return m.handleMainPanelKeys(msg)
+	}
+	return m, nil
+}
+
+// handleSubscriptionKeys handles keys for the subscriptions panel
+func (m *Model) handleSubscriptionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		m.subListPanel.Prev()
+	case "down", "j":
+		m.subListPanel.Next()
+	case "pgup":
+		m.subListPanel.PageUp()
+	case "pgdown":
+		m.subListPanel.PageDown()
+	case "enter":
+		return m.handleSubEnter()
+	case "/":
+		m.startSearchMode()
+	case "r":
+		// TODO: Refresh subscriptions
+		m.updateStatusBarWithText("Refreshing subscriptions...")
+	case "esc":
+		if m.subListPanel.IsFiltering() {
+			m.subListPanel.ClearFilter()
+		}
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// handleResourceGroupKeys handles keys for the resource groups panel
+func (m *Model) handleResourceGroupKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		m.rgListPanel.Prev()
+	case "down", "j":
+		m.rgListPanel.Next()
+	case "pgup":
+		m.rgListPanel.PageUp()
+	case "pgdown":
+		m.rgListPanel.PageDown()
+	case "enter":
+		return m.handleRGEnter()
+	case "/":
+		m.startSearchMode()
+	case "r":
+		// TODO: Refresh resource groups
+		m.updateStatusBarWithText("Refreshing resource groups...")
+	case "esc":
+		if m.rgListPanel.IsFiltering() {
+			m.rgListPanel.ClearFilter()
+		}
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// handleResourceKeys handles keys for the resources panel
+func (m *Model) handleResourceKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		m.resListPanel.Prev()
+	case "down", "j":
+		m.resListPanel.Next()
+	case "pgup":
+		m.resListPanel.PageUp()
+	case "pgdown":
+		m.resListPanel.PageDown()
+	case "enter":
+		return m.handleResourceEnter()
+	case "/":
+		m.startSearchMode()
+	case "r":
+		// TODO: Refresh resources
+		m.updateStatusBarWithText("Refreshing resources...")
+	case "esc":
+		if m.resListPanel.IsFiltering() {
+			m.resListPanel.ClearFilter()
+		}
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// handleMainPanelKeys handles keys for the main panel
+func (m *Model) handleMainPanelKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		m.mainPanel.ScrollUp()
+	case "down", "j":
+		m.mainPanel.ScrollDown()
+	case "pgup":
+		m.mainPanel.ScrollPageUp()
+	case "pgdown":
+		m.mainPanel.ScrollPageDown()
+	case "home", "g":
+		m.mainPanel.ScrollTop()
+	case "end", "G":
+		m.mainPanel.ScrollBottom()
+	case "[":
+		m.mainPanel.PrevTab()
+		m.clearMainPanelSearch()
+	case "]":
+		m.mainPanel.NextTab()
+		m.clearMainPanelSearch()
+	case "/":
+		if !m.searchingMain {
+			m.startMainPanelSearch()
+		}
+	case "c":
+		// TODO: Copy URL
+		m.updateStatusBarWithText("Copy URL: TODO")
+	case "o":
+		// TODO: Open portal
+		m.updateStatusBarWithText("Open portal: TODO")
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// clearMainPanelSearch clears the main panel search
+func (m *Model) clearMainPanelSearch() {
+	if m.mainPanelSearch.IsActive() {
+		m.mainPanelSearch.ClearSearch()
+		m.updateMainPanelContent()
+	}
+}
+
+// handleSubEnter handles Enter in subscriptions panel
+func (m *Model) handleSubEnter() (tea.Model, tea.Cmd) {
+	if sub, ok := m.subListPanel.Selected(); ok {
+		// Move to RG panel
+		m.activePanel = ResourceGroupsPanel
+		// TODO: Load RGs for this subscription
+		_ = sub
+		m.updatePanelStates()
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// handleRGEnter handles Enter in resource groups panel
+func (m *Model) handleRGEnter() (tea.Model, tea.Cmd) {
+	if rg, ok := m.rgListPanel.Selected(); ok {
+		// Move to Resources panel
+		m.activePanel = ResourcesPanel
+		// TODO: Load resources for this RG
+		_ = rg
+		m.updatePanelStates()
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// handleResourceEnter handles Enter in resources panel
+func (m *Model) handleResourceEnter() (tea.Model, tea.Cmd) {
+	if res, ok := m.resListPanel.Selected(); ok {
+		// Move to main panel and show details
+		m.activePanel = MainPanel
+		// TODO: Load resource details
+		_ = res
+		m.updatePanelStates()
+	}
+	m.updateStatusBar()
+	return m, nil
+}
+
+// showVersion displays version info in the status bar for 5 seconds
+func (m *Model) showVersion() tea.Cmd {
+	m.showingVersion = true
+	if m.versionTimer != nil {
+		m.versionTimer.Stop()
+	}
+	m.updateStatusBar()
+	// Return a command that will clear the version after 5 seconds
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		return ClearVersionMsg{}
+	})
+}
+
+// updateStatusBar updates the status bar with context-aware help
+func (m *Model) updateStatusBar() {
+	var text string
+	if m.showingVersion {
+		text = m.formatVersionText()
+	} else if m.searchMode {
+		text = m.formatSearchInputStatus()
+	} else if m.searchingMain {
+		text = m.formatMainPanelSearchStatus()
+	} else {
+		text = m.formatContextHelp()
+	}
+	m.statusBar.SetText(text)
+}
+
+// formatSearchInputStatus returns status text for list panel search input mode
+func (m *Model) formatSearchInputStatus() string {
+	return fmt.Sprintf("/%s_ | Esc: Cancel | Enter: Confirm", m.searchInput.Value())
+}
+
+// formatMainPanelSearchStatus returns status text for main panel search
+func (m *Model) formatMainPanelSearchStatus() string {
+	searchText := m.searchInput.Value()
+	if m.mainPanelSearch.IsActive() && m.mainPanelSearch.GetMatchCount() > 0 {
+		current, total := m.mainPanelSearch.GetCurrentMatch()
+		return fmt.Sprintf("/%s_ | Match %d/%d | n: Next | N: Prev | Esc: Cancel", searchText, current, total)
+	}
+	return fmt.Sprintf("/%s_ | Esc: Cancel | Enter: Confirm", searchText)
+}
+
+// updateStatusBarWithText sets a specific status bar message
+func (m *Model) updateStatusBarWithText(text string) {
+	m.statusBar.SetText(text)
+}
+
+// formatVersionText returns the version display text
+func (m *Model) formatVersionText() string {
+	version := m.versionInfo.Version
+	commit := m.versionInfo.Commit
+
+	// Shorten commit for display
+	displayCommit := commit
+	if len(displayCommit) > 7 {
+		displayCommit = displayCommit[:7]
+	}
+
+	return "lazyazure " + version + " (" + displayCommit + ") | Esc: Dismiss"
+}
+
+// clearVersionDisplay clears the version display and reverts status bar
+func (m *Model) clearVersionDisplay() {
+	if m.versionTimer != nil {
+		m.versionTimer.Stop()
+		m.versionTimer = nil
+	}
+	m.showingVersion = false
+	m.updateStatusBar()
+}
+
+// formatContextHelp returns context-aware help text (matching gocui implementation)
+func (m *Model) formatContextHelp() string {
+	switch m.activePanel {
+	case SubscriptionsPanel:
+		subShowing, subTotal := m.subListPanel.GetFilterStats()
+		if m.subListPanel.IsFiltering() {
+			return fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load RGs | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
+				m.subListPanel.GetFilterText(), subShowing, subTotal)
+		}
+		return fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load RGs | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit | Subs: %d", subTotal)
+
+	case ResourceGroupsPanel:
+		rgShowing, rgTotal := m.rgListPanel.GetFilterStats()
+		if m.rgListPanel.IsFiltering() {
+			return fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load Resources | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
+				m.rgListPanel.GetFilterText(), rgShowing, rgTotal)
+		}
+		return fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load Resources | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgTotal)
+
+	case ResourcesPanel:
+		resShowing, resTotal := m.resListPanel.GetFilterStats()
+		if m.resListPanel.IsFiltering() {
+			return fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: View Details | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
+				m.resListPanel.GetFilterText(), resShowing, resTotal)
+		}
+		return fmt.Sprintf("↑↓: Navigate | /: Search | Enter: View Details | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resTotal)
+
+	case MainPanel:
+		return "↑/↓ or j/k: Scroll | PgUp/PgDn: Page | /: Search | c: Copy | o: Open | Tab: Back to List | []: Tabs | r: Refresh | q: Quit"
+
+	default:
+		return "↑↓: Navigate | Tab: Switch | r: Refresh | q: Quit"
+	}
+}
+
+// startSearchMode activates search mode for the current list panel
+func (m *Model) startSearchMode() {
+	m.searchMode = true
+	m.searchInput.Focus()
+	m.updateStatusBar()
+}
+
+// handleSearchMode handles key input when in search mode
+func (m *Model) handleSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.searchMode = false
+		m.searchInput.SetValue("")
+		m.searchInput.Blur()
+		// Clear filter on current panel
+		switch m.activePanel {
+		case SubscriptionsPanel:
+			m.subListPanel.ClearFilter()
+		case ResourceGroupsPanel:
+			m.rgListPanel.ClearFilter()
+		case ResourcesPanel:
+			m.resListPanel.ClearFilter()
+		}
+		m.updateStatusBar()
+		return m, nil
+
+	case "enter":
+		m.searchMode = false
+		m.searchInput.Blur()
+		m.updateStatusBar()
+		return m, nil
+
+	case "ctrl+u":
+		m.searchInput.SetValue("")
+		m.updateSearchFilter("")
+		m.updateStatusBar()
+		return m, nil
+
+	case "ctrl+w":
+		// Delete last word
+		val := m.searchInput.Value()
+		if len(val) > 0 {
+			// Find last space
+			lastSpace := -1
+			for i := len(val) - 1; i >= 0; i-- {
+				if val[i] == ' ' {
+					lastSpace = i
+					break
+				}
+			}
+			if lastSpace >= 0 {
+				m.searchInput.SetValue(val[:lastSpace])
+			} else {
+				m.searchInput.SetValue("")
+			}
+			m.updateSearchFilter(m.searchInput.Value())
+			m.updateStatusBar()
+		}
+		return m, nil
+
+	default:
+		// Let textinput handle the key
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		// Update filter on the fly
+		m.updateSearchFilter(m.searchInput.Value())
+		m.updateStatusBar()
+		return m, cmd
+	}
+}
+
+// updateSearchFilter updates the filter on the current panel
+func (m *Model) updateSearchFilter(text string) {
+	switch m.activePanel {
+	case SubscriptionsPanel:
+		m.subListPanel.SetFilter(text)
+	case ResourceGroupsPanel:
+		m.rgListPanel.SetFilter(text)
+	case ResourcesPanel:
+		m.resListPanel.SetFilter(text)
+	}
+}
+
+// startMainPanelSearch starts search mode for the main panel
+func (m *Model) startMainPanelSearch() {
+	m.searchingMain = true
+	m.searchInput.SetValue("")
+	m.searchInput.Focus()
+
+	// Get current content from main panel and set it in search
+	lines := m.mainPanel.GetContentLines()
+	m.mainPanelSearch.SetContent(lines)
+	m.mainPanelSearch.SetSearch("")
+
+	m.updateStatusBar()
+}
+
+// handleMainPanelSearchMode handles keys when searching in main panel
+func (m *Model) handleMainPanelSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.searchingMain = false
+		m.searchInput.SetValue("")
+		m.searchInput.Blur()
+		m.mainPanelSearch.ClearSearch()
+		// Restore original content
+		m.updateMainPanelContent()
+		m.updateStatusBar()
+		return m, nil
+
+	case "enter":
+		m.searchingMain = false
+		m.searchInput.Blur()
+		m.updateStatusBar()
+		return m, nil
+
+	case "n":
+		// Next match
+		if m.mainPanelSearch.IsActive() && m.mainPanelSearch.GetMatchCount() > 0 {
+			lineNum := m.mainPanelSearch.NextMatch()
+			m.mainPanel.GotoLine(lineNum)
+			m.updateMainPanelHighlightedContent()
+		}
+		m.updateStatusBar()
+		return m, nil
+
+	case "N":
+		// Previous match
+		if m.mainPanelSearch.IsActive() && m.mainPanelSearch.GetMatchCount() > 0 {
+			lineNum := m.mainPanelSearch.PrevMatch()
+			m.mainPanel.GotoLine(lineNum)
+			m.updateMainPanelHighlightedContent()
+		}
+		m.updateStatusBar()
+		return m, nil
+
+	case "ctrl+u":
+		m.searchInput.SetValue("")
+		m.mainPanelSearch.SetSearch("")
+		m.updateMainPanelContent()
+		m.updateStatusBar()
+		return m, nil
+
+	default:
+		// Let textinput handle the key
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		// Update search and refresh highlights
+		m.mainPanelSearch.SetSearch(m.searchInput.Value())
+		m.updateMainPanelHighlightedContent()
+		m.updateStatusBar()
+		return m, cmd
+	}
+}
+
+// updateMainPanelContent restores the original content (without highlights)
+func (m *Model) updateMainPanelContent() {
+	lines := m.mainPanel.GetContentLines()
+	m.mainPanel.SetHighlightedContent(lines)
+}
+
+// updateMainPanelHighlightedContent updates the main panel with highlighted search results
+func (m *Model) updateMainPanelHighlightedContent() {
+	if m.mainPanelSearch.IsActive() && m.mainPanelSearch.GetMatchCount() > 0 {
+		highlightedLines := m.mainPanelSearch.GetHighlightedContent()
+		m.mainPanel.SetHighlightedContent(highlightedLines)
+	} else {
+		m.updateMainPanelContent()
+	}
+}
+
+// handleMouse handles mouse events
+func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Get the zone manager
+	z := zone.New()
+
+	// Define zone IDs for panels
+	subZoneID := "subscriptions"
+	rgZoneID := "resourcegroups"
+	resZoneID := "resources"
+	mainZoneID := "main"
+
+	switch msg.Type {
+	case tea.MouseLeft:
+		// Check which zone was clicked
+		if z.Get(subZoneID).InBounds(msg) {
+			m.activePanel = SubscriptionsPanel
+			// TODO: Calculate which item was clicked and select it
+		} else if z.Get(rgZoneID).InBounds(msg) {
+			m.activePanel = ResourceGroupsPanel
+		} else if z.Get(resZoneID).InBounds(msg) {
+			m.activePanel = ResourcesPanel
+		} else if z.Get(mainZoneID).InBounds(msg) {
+			m.activePanel = MainPanel
+		}
+		m.updatePanelStates()
+
+	case tea.MouseRight:
+		// Copy URL - TODO: implement
+		m.updateStatusBarWithText("Right-click: Copy URL (TODO)")
+
+	case tea.MouseMiddle:
+		// Open portal - TODO: implement
+		m.updateStatusBarWithText("Middle-click: Open portal (TODO)")
+
+	case tea.MouseWheelUp:
+		// Scroll up based on active panel
+		switch m.activePanel {
+		case SubscriptionsPanel:
+			m.subListPanel.Prev()
+		case ResourceGroupsPanel:
+			m.rgListPanel.Prev()
+		case ResourcesPanel:
+			m.resListPanel.Prev()
+		case MainPanel:
+			m.mainPanel.ScrollUp()
+		}
+
+	case tea.MouseWheelDown:
+		// Scroll down based on active panel
+		switch m.activePanel {
+		case SubscriptionsPanel:
+			m.subListPanel.Next()
+		case ResourceGroupsPanel:
+			m.rgListPanel.Next()
+		case ResourcesPanel:
+			m.resListPanel.Next()
+		case MainPanel:
+			m.mainPanel.ScrollDown()
+		}
+	}
+
+	m.updateStatusBar()
 	return m, nil
 }
 
@@ -336,17 +926,25 @@ func (m *Model) updatePanelStates() {
 
 // View implements tea.Model
 func (m *Model) View() string {
-	// Build sidebar
+	// Create zone manager
+	z := zone.New()
+
+	// Build sidebar with zone markers
+	authPanel := m.renderAuthPanel()
+	subPanel := z.Mark("subscriptions", m.subListPanel.View())
+	rgPanel := z.Mark("resourcegroups", m.rgListPanel.View())
+	resPanel := z.Mark("resources", m.resListPanel.View())
+
 	sidebar := lipgloss.JoinVertical(
 		lipgloss.Left,
-		m.renderAuthPanel(),
-		m.subListPanel.View(),
-		m.rgListPanel.View(),
-		m.resListPanel.View(),
+		authPanel,
+		subPanel,
+		rgPanel,
+		resPanel,
 	)
 
-	// Main panel
-	mainPanel := m.mainPanel.View()
+	// Main panel with zone marker
+	mainPanel := z.Mark("main", m.mainPanel.View())
 
 	// Combine sidebar and main panel horizontally
 	content := lipgloss.JoinHorizontal(
@@ -355,8 +953,13 @@ func (m *Model) View() string {
 		mainPanel,
 	)
 
-	// Status bar
-	status := m.statusBar.View()
+	// Status bar (or search input when in search mode)
+	var status string
+	if m.searchMode || m.searchingMain {
+		status = m.renderSearchBar()
+	} else {
+		status = m.statusBar.View()
+	}
 
 	// Final layout
 	return lipgloss.JoinVertical(
@@ -364,6 +967,22 @@ func (m *Model) View() string {
 		content,
 		status,
 	)
+}
+
+// renderSearchBar renders the search input at the bottom
+func (m *Model) renderSearchBar() string {
+	styles := components.NewStyles()
+
+	// Update search input width
+	m.searchInput.Width = m.width - 2
+
+	// Create search bar with prompt
+	prompt := "/"
+	input := m.searchInput.View()
+
+	// Combine and style
+	searchBar := prompt + input
+	return styles.StatusBar.Width(m.width).Render(searchBar)
 }
 
 // renderAuthPanel renders the authentication status panel

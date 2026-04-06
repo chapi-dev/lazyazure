@@ -34,7 +34,7 @@ func TestModelView(t *testing.T) {
 		{"Subscriptions panel", "Subscriptions"},
 		{"Resource Groups panel", "Resource Groups"},
 		{"Resources panel", "Resources"},
-		{"Status bar", "Welcome to LazyAzure"},
+		{"Status bar", "Load RGs"}, // Context-aware help for subscriptions panel
 	}
 
 	for _, tt := range tests {

@@ -277,7 +277,7 @@ func runApp(version, commit, date string) int {
 
 	isDemo := demoMode == "1" || demoMode == "2"
 	m := tui.NewModel(azureClient, clientFactory, versionInfo, isDemo)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 
 	utils.Log("Starting TUI main loop...")
 	if _, err := p.Run(); err != nil {

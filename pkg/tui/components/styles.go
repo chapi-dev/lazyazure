@@ -74,13 +74,9 @@ func NewStyles() Styles {
 		ListItemSelected: lipgloss.NewStyle().Background(SelectedColor).Foreground(WhiteColor),
 		ListItemGray:     lipgloss.NewStyle().Foreground(GrayColor),
 
-		// Status bar
-		StatusBar: lipgloss.NewStyle().
-			Background(lipgloss.Color("8")).
-			Foreground(WhiteColor),
-		StatusBarActive: lipgloss.NewStyle().
-			Background(GreenColor).
-			Foreground(BlackColor),
+		// Status bar - no background to match gocui
+		StatusBar:       lipgloss.NewStyle(),
+		StatusBarActive: lipgloss.NewStyle().Foreground(GreenColor),
 
 		// Main panel
 		MainPanel: lipgloss.NewStyle().
