@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matsest/lazyazure/pkg/azure"
 	"github.com/matsest/lazyazure/pkg/demo"
 	"github.com/matsest/lazyazure/pkg/gui"
@@ -275,7 +275,8 @@ func runApp(version, commit, date string) int {
 		Date:    date,
 	}
 
-	m := tui.NewModel(azureClient, clientFactory, versionInfo)
+	isDemo := demoMode == "1" || demoMode == "2"
+	m := tui.NewModel(azureClient, clientFactory, versionInfo, isDemo)
 	p := tea.NewProgram(m)
 
 	utils.Log("Starting TUI main loop...")
