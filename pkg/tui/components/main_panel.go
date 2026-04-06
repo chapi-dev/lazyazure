@@ -1,8 +1,6 @@
 package components
 
 import (
-	"strings"
-
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -42,7 +40,7 @@ func (mp *MainPanel) SetSize(width, height int) {
 	mp.width = width
 	mp.height = height
 	mp.viewport.Width = width - 2
-	mp.viewport.Height = height - 4 // Account for borders and tabs
+	mp.viewport.Height = height - 2 // Account for borders only (tabs are now in border title)
 }
 
 // SetActive sets whether this panel is currently focused
@@ -174,31 +172,16 @@ func (mp *MainPanel) View() string {
 		panelStyle = styles.ActivePanel
 	}
 
-	// Build tab bar
-	var tabBar strings.Builder
-	tabBar.WriteString(" ")
-	if mp.tab == SummaryTab {
-		tabBar.WriteString(styles.MainPanelTabSel.Render("Summary"))
-	} else {
-		tabBar.WriteString(styles.MainPanelTab.Render("Summary"))
-	}
-	tabBar.WriteString(" ")
-	if mp.tab == JSONTab {
-		tabBar.WriteString(styles.MainPanelTabSel.Render("JSON"))
-	} else {
-		tabBar.WriteString(styles.MainPanelTab.Render("JSON"))
-	}
-	tabBar.WriteString("\n")
-
-	// Get viewport content
-	viewportContent := mp.viewport.View()
-
-	// Combine tabs and content
-	content := tabBar.String() + viewportContent
+	// Get viewport content (no internal tab bar - tabs are in border title now)
+	content := mp.viewport.View()
 
 	// Apply size and render
-	return panelStyle.
+	rendered := panelStyle.
 		Width(mp.width).
 		Height(mp.height).
 		Render(content)
+
+	// Create tab-style border title: "Summary | JSON" with active tab highlighted
+	tabTitle := TabTitle(mp.tab == SummaryTab)
+	return EmbedBorderTitle(rendered, tabTitle)
 }

@@ -373,17 +373,20 @@ func (m *Model) renderAuthPanel() string {
 	// Simple auth panel - will be enhanced in Phase 4
 	var content string
 	if m.azureClient != nil {
-		content = "Auth\nAuthenticated"
+		content = "Authenticated"
 	} else if m.isDemo {
-		content = "Auth\nDemo Mode"
+		content = "Demo Mode"
 	} else {
-		content = "Auth\nAuthenticating..."
+		content = "Authenticating..."
 	}
 
-	return styles.AuthPanel.
+	// Render panel and embed title on border
+	rendered := styles.AuthPanel.
 		Width(m.sidebarWidth - 2).
 		Height(3).
 		Render(content)
+
+	return components.EmbedBorderTitle(rendered, "Auth")
 }
 
 // SetSubscriptionData sets the subscription data

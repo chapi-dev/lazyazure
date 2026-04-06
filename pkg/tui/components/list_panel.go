@@ -196,22 +196,10 @@ func (lp *ListPanel[T]) View() string {
 	// Build content
 	var content strings.Builder
 
-	// Add title header
-	titleStyle := lipgloss.NewStyle().
-		Foreground(TitleColor).
-		Bold(true)
-	if lp.active {
-		titleStyle = titleStyle.Foreground(BorderColorActive)
-	}
-	titleLine := titleStyle.Render(lp.title)
-	content.WriteString(titleLine)
-	content.WriteString("\n")
-
 	displayStrings := lp.list.GetFilteredDisplayStrings()
 
 	// Calculate visible range (viewport scrolling)
-	// Subtract 1 for title line
-	listHeight := contentHeight - 1
+	listHeight := contentHeight
 	if listHeight < 1 {
 		listHeight = 1
 	}
@@ -259,12 +247,14 @@ func (lp *ListPanel[T]) View() string {
 		content.WriteString(line)
 	}
 
-	// Fill empty space (account for title line)
+	// Fill empty space
 	visibleItems := visibleEnd - visibleStart
 	for i := visibleItems; i < listHeight; i++ {
 		content.WriteString("\n")
 		content.WriteString(strings.Repeat(" ", contentWidth))
 	}
 
-	return panelStyle.Render(content.String())
+	// Render the panel and embed the title in the border
+	rendered := panelStyle.Render(content.String())
+	return EmbedBorderTitle(rendered, lp.title)
 }
