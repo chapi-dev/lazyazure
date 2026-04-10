@@ -1478,7 +1478,9 @@ func (gui *Gui) nextSub(g *gocui.Gui, v *gocui.View) error {
 
 	// Calculate absolute position and check if we can move
 	if oy+cy < subCount-1 {
-		if cy < height-1 {
+		// For framed views, subtract 2 for the borders (top and bottom)
+		visibleHeight := height - 2
+		if cy < visibleHeight-1 {
 			// Move cursor within visible area
 			v.SetCursor(cx, cy+1)
 		} else {
@@ -1540,7 +1542,9 @@ func (gui *Gui) nextRG(g *gocui.Gui, v *gocui.View) error {
 
 	// Calculate absolute position and check if we can move
 	if oy+cy < rgCount-1 {
-		if cy < height-1 {
+		// For framed views, subtract 2 for the borders (top and bottom)
+		visibleHeight := height - 2
+		if cy < visibleHeight-1 {
 			// Move cursor within visible area
 			v.SetCursor(cx, cy+1)
 		} else {
@@ -1606,7 +1610,9 @@ func (gui *Gui) nextRes(g *gocui.Gui, v *gocui.View) error {
 
 	// Calculate absolute position and check if we can move
 	if oy+cy < resCount-1 {
-		if cy < height-1 {
+		// For framed views, subtract 2 for the borders (top and bottom)
+		visibleHeight := height - 2
+		if cy < visibleHeight-1 {
 			// Move cursor within visible area
 			v.SetCursor(cx, cy+1)
 		} else {
