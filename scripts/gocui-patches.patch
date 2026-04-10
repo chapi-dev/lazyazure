@@ -1,0 +1,57 @@
+diff --git a/vendor_gocui/escape.go b/vendor_gocui/escape.go
+index cb557f0..5cdff27 100644
+--- a/vendor_gocui/escape.go
++++ b/vendor_gocui/escape.go
+@@ -274,7 +274,7 @@ func (ei *escapeInterpreter) outputCSI() error {
+ 			ei.curFgColor &= ^getFontEffect(p - 20)
+ 		case p >= 30 && p <= 37: // set foreground color
+ 			ei.curFgColor &= AttrStyleBits
+-			ei.curFgColor |= Get256Color(int32(p) - 30)
++			ei.curFgColor |= Get256Color(int32(p - 30))
+ 		case p == setForegroundColor: // set foreground color (256-color or true color)
+ 			var color Attribute
+ 			var err error
+@@ -289,7 +289,7 @@ func (ei *escapeInterpreter) outputCSI() error {
+ 			ei.curFgColor |= ColorDefault
+ 		case p >= 40 && p <= 47: // set background color
+ 			ei.curBgColor &= AttrStyleBits
+-			ei.curBgColor |= Get256Color(int32(p) - 40)
++			ei.curBgColor |= Get256Color(int32(p - 40))
+ 		case p == setBackgroundColor: // set background color (256-color or true color)
+ 			var color Attribute
+ 			var err error
+@@ -304,10 +304,10 @@ func (ei *escapeInterpreter) outputCSI() error {
+ 			ei.curBgColor |= ColorDefault
+ 		case p >= 90 && p <= 97: // set bright foreground color
+ 			ei.curFgColor &= AttrStyleBits
+-			ei.curFgColor |= Get256Color(int32(p) - 90 + 8)
++			ei.curFgColor |= Get256Color(int32(p - 90 + 8))
+ 		case p >= 100 && p <= 107: // set bright background color
+ 			ei.curBgColor &= AttrStyleBits
+-			ei.curBgColor |= Get256Color(int32(p) - 100 + 8)
++			ei.curBgColor |= Get256Color(int32(p - 100 + 8))
+ 		default:
+ 		}
+ 		i += skip
+@@ -343,6 +343,10 @@ func (ei *escapeInterpreter) csiColor(param []string) (color Attribute, skip int
+ 		if err != nil {
+ 			return 0, 0, errCSIParseError
+ 		}
++		// Validate RGB values are within byte range (0-255)
++		if red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255 {
++			return 0, 0, errCSIParseError
++		}
+ 		return NewRGBColor(int32(red), int32(green), int32(blue)), 5, nil
+ 	case "5":
+ 		// 8-bit color
+@@ -357,6 +361,10 @@ func (ei *escapeInterpreter) csiColor(param []string) (color Attribute, skip int
+ 		if err != nil {
+ 			return 0, 0, errCSIParseError
+ 		}
++		// Validate color index is within 8-bit range (0-255)
++		if hex < 0 || hex > 255 {
++			return 0, 0, errCSIParseError
++		}
+ 		return Get256Color(int32(hex)), 3, nil
+ 	default:
+ 		return 0, 0, errCSIParseError

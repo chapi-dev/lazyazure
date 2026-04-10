@@ -457,7 +457,7 @@ LazyAzure uses a local patched version of gocui to fix upstream bugs (e.g., Mous
 **Structure:**
 ```
 vendor_gocui/                  # Local copy of gocui with patches applied
-scripts/gocui-mouse-right.patch  # Standalone patch file for the fix
+scripts/gocui-patches.patch      # Standalone patch file for all fixes
 ```
 
 **go.mod uses replace directive:**
@@ -471,13 +471,14 @@ replace github.com/jesseduffield/gocui => ./vendor_gocui
 cp -r /path/to/new/gocui/* vendor_gocui/
 
 # 2. Reapply patch
-cd vendor_gocui && patch -p1 < ../scripts/gocui-mouse-right.patch
+cd vendor_gocui && patch -p1 < ../scripts/gocui-patches.patch
 
 # 3. Test, then update go.mod to new version and remove replace directive
 ```
 
 **Current patches applied:**
 - MouseRight/MouseMiddle click events now work correctly (were silently discarded)
+- Security fix: Add bounds checking for ANSI color code parsing to prevent integer overflow (GitHub CodeQL warning)
 
 ### 6. Testing
 
