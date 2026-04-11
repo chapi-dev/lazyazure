@@ -31,7 +31,7 @@ brews:
     test: |
       system "#{bin}/lazyazure", "--help"
     install: |
-      bin.install "lazyazure"
+      bin.install "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}" => "lazyazure"
 
 archives:
   - formats: binary
