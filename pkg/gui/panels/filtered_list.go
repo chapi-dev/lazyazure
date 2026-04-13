@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
@@ -149,6 +150,8 @@ func (fl *FilteredList[T]) GetFilterStats() (showing, total int) {
 
 // applyFilter updates indices based on current filterText
 // Must be called with lock held
+// Uses a two-tier match: exact substring matches first (sorted by position),
+// then fuzzy matches (characters in order but not contiguous, sorted by score).
 func (fl *FilteredList[T]) applyFilter() {
 	if fl.filterText == "" {
 		fl.indices = make([]int, len(fl.allItems))
@@ -158,14 +161,77 @@ func (fl *FilteredList[T]) applyFilter() {
 		return
 	}
 
-	// Case-insensitive substring match on display strings
-	filtered := make([]int, 0, len(fl.allItems))
+	type scored struct {
+		index int
+		score int // lower is better; 0 = exact, positive = fuzzy score
+		exact bool
+	}
+
+	var matches []scored
 	for i, display := range fl.displayStrings {
-		if strings.Contains(strings.ToLower(display), fl.filterText) {
-			filtered = append(filtered, i)
+		lower := strings.ToLower(display)
+		if pos := strings.Index(lower, fl.filterText); pos >= 0 {
+			// Exact substring match — score by position (earlier = better)
+			matches = append(matches, scored{index: i, score: pos, exact: true})
+		} else if s, ok := fuzzyScore(lower, fl.filterText); ok {
+			matches = append(matches, scored{index: i, score: s, exact: false})
 		}
 	}
-	fl.indices = filtered
+
+	// Sort: exact matches first (by position), then fuzzy (by score)
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].exact != matches[j].exact {
+			return matches[i].exact
+		}
+		if matches[i].score != matches[j].score {
+			return matches[i].score < matches[j].score
+		}
+		return matches[i].index < matches[j].index
+	})
+
+	fl.indices = make([]int, len(matches))
+	for i, m := range matches {
+		fl.indices[i] = m.index
+	}
+}
+
+// fuzzyScore checks if all chars of pattern appear in text in order (case-insensitive).
+// Returns a score (lower is better) and whether it matched.
+// Score penalizes gaps between matched characters and non-start-of-word matches.
+func fuzzyScore(text, pattern string) (int, bool) {
+	tRunes := []rune(text)
+	pRunes := []rune(pattern)
+	if len(pRunes) == 0 {
+		return 0, true
+	}
+	if len(pRunes) > len(tRunes) {
+		return 0, false
+	}
+
+	score := 0
+	pi := 0
+	lastMatch := -1
+	for ti := 0; ti < len(tRunes) && pi < len(pRunes); ti++ {
+		if tRunes[ti] == pRunes[pi] {
+			if lastMatch >= 0 {
+				gap := ti - lastMatch - 1
+				score += gap * gap // penalize gaps quadratically
+			}
+			// Bonus for start-of-word matches (after space, hyphen, underscore, or at pos 0)
+			if ti == 0 || tRunes[ti-1] == ' ' || tRunes[ti-1] == '-' || tRunes[ti-1] == '_' {
+				// no penalty
+			} else {
+				score += 1
+			}
+			lastMatch = ti
+			pi++
+		}
+	}
+
+	if pi < len(pRunes) {
+		return 0, false // not all pattern chars found
+	}
+	return score, true
 }
 
 // MapFilteredToOriginal maps a filtered index back to the original index

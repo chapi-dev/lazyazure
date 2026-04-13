@@ -12,6 +12,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jesseduffield/gocui v0.3.1-0.20260327132312-944dab3bc980
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
