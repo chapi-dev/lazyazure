@@ -369,3 +369,84 @@ func TestFindIndex(t *testing.T) {
 		t.Error("Expected false for item not in filtered list")
 	}
 }
+
+func TestFuzzyScore(t *testing.T) {
+	tests := []struct {
+		text    string
+		pattern string
+		match   bool
+	}{
+		{"virtual machine", "vm", true},
+		{"storage account", "sa", true},
+		{"resource group", "rg", true},
+		{"network security group", "nsg", true},
+		{"apple", "ale", true},
+		{"apple", "apl", true},
+		{"apple", "xyz", false},
+		{"abc", "abcd", false}, // pattern longer than text
+		{"hello world", "hwd", true},
+		{"hello world", "dwh", false}, // wrong order
+		{"", "a", false},
+		{"abc", "", true},
+	}
+
+	for _, tt := range tests {
+		_, ok := fuzzyScore(tt.text, tt.pattern)
+		if ok != tt.match {
+			t.Errorf("fuzzyScore(%q, %q) = _, %v; want %v", tt.text, tt.pattern, ok, tt.match)
+		}
+	}
+}
+
+func TestFuzzyScoreOrdering(t *testing.T) {
+	// Start-of-word matches should score better
+	s1, _ := fuzzyScore("virtual machine", "vm") // v at start, m at start of word
+	s2, _ := fuzzyScore("overview module", "vm") // v in middle, m in middle
+
+	if s1 >= s2 {
+		t.Errorf("Expected start-of-word match to score better: %d >= %d", s1, s2)
+	}
+}
+
+func TestFilterFuzzyMatching(t *testing.T) {
+	fl := NewFilteredList[string]()
+	items := []string{
+		"Virtual Machine",
+		"Storage Account",
+		"Virtual Network",
+		"VM Scale Set",
+	}
+	fl.SetItems(items, func(s string) string { return s })
+
+	// "vm" should match "Virtual Machine" (fuzzy) and "VM Scale Set" (substring)
+	fl.SetFilter("vm")
+
+	if fl.Len() < 2 {
+		t.Errorf("Expected at least 2 fuzzy matches for 'vm', got %d", fl.Len())
+	}
+
+	// First result should be the exact substring match "VM Scale Set"
+	if item, ok := fl.Get(0); !ok || item != "VM Scale Set" {
+		t.Errorf("Expected 'VM Scale Set' (exact match) first, got '%s'", item)
+	}
+}
+
+func TestFilterExactBeforeFuzzy(t *testing.T) {
+	fl := NewFilteredList[string]()
+	items := []string{
+		"something abcdef",   // exact substring match for "abc"
+		"amazing basic cool", // fuzzy match for "abc"
+	}
+	fl.SetItems(items, func(s string) string { return s })
+
+	fl.SetFilter("abc")
+
+	if fl.Len() != 2 {
+		t.Errorf("Expected 2 matches, got %d", fl.Len())
+	}
+
+	// Exact substring match should come first
+	if item, ok := fl.Get(0); !ok || item != "something abcdef" {
+		t.Errorf("Expected exact match first, got '%s'", item)
+	}
+}

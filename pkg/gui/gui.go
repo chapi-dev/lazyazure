@@ -17,6 +17,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/jesseduffield/gocui"
+	"github.com/matsest/lazyazure/pkg/config"
 	"github.com/matsest/lazyazure/pkg/domain"
 	"github.com/matsest/lazyazure/pkg/gui/panels"
 	"github.com/matsest/lazyazure/pkg/tasks"
@@ -48,7 +49,8 @@ const (
 
 // Layout constants (in lines/characters)
 const (
-	AuthViewHeight = 5 // Height of the auth panel
+	AuthViewHeight = 5  // Height of the auth panel
+	CLIViewHeight  = 10 // Height of the CLI panel
 )
 
 // formatWithGraySuffix formats a name with a gray suffix in parentheses
@@ -57,6 +59,30 @@ func formatWithGraySuffix(name, suffix string) string {
 		return name
 	}
 	return name + " " + grayColor + "(" + suffix + ")" + resetColor
+}
+
+// colorFromName converts a color name string to a gocui.Attribute color
+func colorFromName(name string) gocui.Attribute {
+	switch strings.ToLower(name) {
+	case "black":
+		return gocui.ColorBlack
+	case "red":
+		return gocui.ColorRed
+	case "green":
+		return gocui.ColorGreen
+	case "yellow":
+		return gocui.ColorYellow
+	case "blue":
+		return gocui.ColorBlue
+	case "magenta":
+		return gocui.ColorMagenta
+	case "cyan":
+		return gocui.ColorCyan
+	case "white":
+		return gocui.ColorWhite
+	default:
+		return gocui.ColorGreen
+	}
 }
 
 // sortSubscriptions sorts subscriptions by name (case-insensitive) with pre-computed lowercase
@@ -167,6 +193,10 @@ type Gui struct {
 	mainView   *gocui.View
 	statusView *gocui.View
 
+	// Views - CLI panel (bottom)
+	cliOutputView *gocui.View
+	cliInputView  *gocui.View
+
 	// Selection state
 	selectedSub *domain.Subscription
 	selectedRG  *domain.ResourceGroup
@@ -209,14 +239,24 @@ type Gui struct {
 	// Track which panel triggered refresh for better loading messages
 	refreshTriggeredBy string
 
+	// CLI state
+	cliHistory    []string // command history
+	cliHistoryIdx int      // current position in history
+	cliActive     bool     // whether CLI input is focused
+
 	// Background preloading cache
 	preloadCache *PreloadCache
+
+	// Application configuration
+	appConfig *config.Config
 
 	mu sync.RWMutex
 }
 
 // NewGui creates a new GUI instance
 func NewGui(azureClient AzureClient, clientFactory AzureClientFactory, versionInfo VersionInfo) (*Gui, error) {
+	cfg := config.Load()
+	utils.Log("NewGui: Loaded config (default_subscription=%q, cache_size=%q)", cfg.DefaultSubscription, cfg.CacheSize)
 	return &Gui{
 		azureClient:     azureClient,
 		clientFactory:   clientFactory,
@@ -229,6 +269,7 @@ func NewGui(azureClient AzureClient, clientFactory AzureClientFactory, versionIn
 		mainPanelSearch: panels.NewMainPanelSearch(),
 		versionInfo:     versionInfo,
 		preloadCache:    NewPreloadCache(),
+		appConfig:       cfg,
 	}, nil
 }
 
@@ -252,10 +293,11 @@ func (gui *Gui) Run() error {
 	gui.g.Mouse = true
 	utils.Log("Gui.Run: Mouse support enabled")
 
-	// Set up color scheme (green border for active/focused elements)
-	gui.g.SelFgColor = gocui.ColorGreen
+	// Set up color scheme from config
+	borderColor := colorFromName(gui.appConfig.Theme.ActiveBorderColor)
+	gui.g.SelFgColor = borderColor
 	gui.g.SelBgColor = gocui.ColorDefault
-	gui.g.SelFrameColor = gocui.ColorGreen
+	gui.g.SelFrameColor = borderColor
 	// Don't set g.FgColor - let inactive titles use default (white)
 	// Don't set g.BgColor - let it use the terminal default
 
@@ -310,13 +352,23 @@ func (gui *Gui) setupViews() error {
 	// Calculate heights for stacked panels
 	// Auth: 5 lines, then distribute remaining: 20% subscriptions, 30% RGs, ~50% resources
 	authHeight := AuthViewHeight
-	remainingHeight := maxY - authHeight - 2 // -2 for status bar
-	// Divide remaining space: 20% for subscriptions, 30% for RGs, rest for resources
-	subHeight := remainingHeight / 5       // 20%
-	rgHeight := (remainingHeight * 3) / 10 // 30%
 
 	// Status bar at bottom
 	statusY := maxY - 2
+
+	// CLI panel sits above status bar (full width)
+	cliInputHeight := 2 // 1 line for input + border
+	cliY0 := statusY - CLIViewHeight - cliInputHeight
+	cliY1 := statusY // CLI output area
+	cliInputY0 := cliY1 - cliInputHeight
+
+	// Content area ends where CLI starts
+	contentBottomY := cliY0
+
+	remainingHeight := contentBottomY - authHeight - 1
+	// Divide remaining space: 20% for subscriptions, 30% for RGs, rest for resources
+	subHeight := remainingHeight / 5       // 20%
+	rgHeight := (remainingHeight * 3) / 10 // 30%
 
 	// 1. Auth panel (top, small)
 	if v, err := gui.g.SetView("auth", 0, 0, sidebarWidth-1, authHeight, 0); err != nil {
@@ -364,9 +416,9 @@ func (gui *Gui) setupViews() error {
 
 	// 4. Resources panel (new!)
 	resY0 := rgY1 + 1
-	// Resources should align with main panel which ends at statusY
+	// Resources should align with main panel which ends at contentBottomY
 	// Both panels' bottom borders should be at the same Y coordinate
-	resY1 := statusY
+	resY1 := contentBottomY
 	if v, err := gui.g.SetView("resources", 0, resY0, sidebarWidth-1, resY1, 0); err != nil {
 		if !errors.Is(err, gocui.ErrUnknownView) {
 			return err
@@ -380,7 +432,7 @@ func (gui *Gui) setupViews() error {
 	}
 
 	// 5. Main panel (right side)
-	if v, err := gui.g.SetView("main", rightX0, 0, maxX-1, statusY, 0); err != nil {
+	if v, err := gui.g.SetView("main", rightX0, 0, maxX-1, contentBottomY, 0); err != nil {
 		if !errors.Is(err, gocui.ErrUnknownView) {
 			return err
 		}
@@ -395,18 +447,47 @@ func (gui *Gui) setupViews() error {
 		v.Highlight = false
 		v.Frame = true
 		v.FrameColor = gocui.ColorWhite
-		// Tab colors: selected tab uses SelFgColor (green), inactive uses FgColor (white)
+		// Tab colors: selected tab uses SelFgColor, inactive uses FgColor (white)
 		// SelBgColor and BgColor set to default to avoid background highlight
 		// Include AttrBold in SelFgColor so that when gocui subtracts it for non-current views,
 		// we end up with just the color without bold
-		v.SelFgColor = gocui.ColorGreen | gocui.AttrBold
+		v.SelFgColor = colorFromName(gui.appConfig.Theme.ActiveBorderColor) | gocui.AttrBold
 		v.SelBgColor = gocui.ColorDefault
 		v.FgColor = gocui.ColorWhite
 		v.BgColor = gocui.ColorDefault
 		gui.mainView = v
 	}
 
-	// 6. Status bar (bottom)
+	// 6. CLI output panel (bottom, full width)
+	if v, err := gui.g.SetView("cli_output", 0, cliY0, maxX-1, cliInputY0, 0); err != nil {
+		if !errors.Is(err, gocui.ErrUnknownView) {
+			return err
+		}
+		v.Title = " Copilot CLI "
+		v.Wrap = true
+		v.Autoscroll = true
+		v.Frame = true
+		v.FrameColor = gocui.ColorWhite
+		v.FgColor = gocui.ColorWhite
+		gui.cliOutputView = v
+		fmt.Fprintln(v, "Type your query below and press Enter to ask Copilot.")
+	}
+
+	// 7. CLI input panel (1 line, full width, below output)
+	if v, err := gui.g.SetView("cli_input", 0, cliInputY0, maxX-1, cliY1, 0); err != nil {
+		if !errors.Is(err, gocui.ErrUnknownView) {
+			return err
+		}
+		v.Title = " > "
+		v.Editable = true
+		v.Wrap = false
+		v.Frame = true
+		v.FrameColor = gocui.ColorWhite
+		v.FgColor = gocui.ColorWhite
+		gui.cliInputView = v
+	}
+
+	// 8. Status bar (bottom)
 	if v, err := gui.g.SetView("status", 0, statusY, maxX-1, maxY, 0); err != nil {
 		if !errors.Is(err, gocui.ErrUnknownView) {
 			return err
@@ -457,7 +538,7 @@ func (gui *Gui) setupKeybindings() error {
 	utils.Log("setupKeybindings: Version keybinding set")
 
 	// Mouse click to focus panels (list panels)
-	panels := []string{"subscriptions", "resourcegroups", "resources"}
+	panels := []string{"subscriptions", "resourcegroups", "resources", "cli_input", "cli_output"}
 	for _, panel := range panels {
 		if err := gui.g.SetKeybinding(panel, gocui.MouseLeft, gocui.ModNone, gui.onPanelClick); err != nil {
 			return err
@@ -618,15 +699,26 @@ func (gui *Gui) setupKeybindings() error {
 		return err
 	}
 
-	// Escape to clear filter (for list panels)
+	// Escape to clear filter or go back (for list panels)
 	if err := gui.g.SetKeybinding("subscriptions", gocui.KeyEsc, gocui.ModNone, gui.clearFilter); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("resourcegroups", gocui.KeyEsc, gocui.ModNone, gui.clearFilter); err != nil {
+	if err := gui.g.SetKeybinding("resourcegroups", gocui.KeyEsc, gocui.ModNone, gui.clearFilterOrGoBack); err != nil {
 		return err
 	}
-	if err := gui.g.SetKeybinding("resources", gocui.KeyEsc, gocui.ModNone, gui.clearFilter); err != nil {
+	if err := gui.g.SetKeybinding("resources", gocui.KeyEsc, gocui.ModNone, gui.clearFilterOrGoBack); err != nil {
 		return err
+	}
+
+	// 'h' / Left arrow to go back in hierarchy (vim-style)
+	backNavPanels := []string{"resourcegroups", "resources"}
+	for _, panel := range backNavPanels {
+		if err := gui.g.SetKeybinding(panel, 'h', gocui.ModNone, gui.goBack); err != nil {
+			return err
+		}
+		if err := gui.g.SetKeybinding(panel, gocui.KeyArrowLeft, gocui.ModNone, gui.goBack); err != nil {
+			return err
+		}
 	}
 
 	// Search input handling (only when search is active)
@@ -658,8 +750,15 @@ func (gui *Gui) setupKeybindings() error {
 	if err := gui.g.SetKeybinding("main", gocui.MouseWheelDown, gocui.ModNone, gui.scrollDown); err != nil {
 		return err
 	}
-	// Escape to clear main panel search
-	if err := gui.g.SetKeybinding("main", gocui.KeyEsc, gocui.ModNone, gui.onMainPanelClearSearch); err != nil {
+	// Escape to clear main panel search or go back
+	if err := gui.g.SetKeybinding("main", gocui.KeyEsc, gocui.ModNone, gui.onMainPanelClearSearchOrGoBack); err != nil {
+		return err
+	}
+	// 'h' / Left arrow to go back from main panel to resources
+	if err := gui.g.SetKeybinding("main", 'h', gocui.ModNone, gui.goBack); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("main", gocui.KeyArrowLeft, gocui.ModNone, gui.goBack); err != nil {
 		return err
 	}
 	// n/N to navigate matches in main panel
@@ -670,6 +769,44 @@ func (gui *Gui) setupKeybindings() error {
 		return err
 	}
 	utils.Log("setupKeybindings: Main panel scrolling set")
+
+	// CLI panel keybindings
+
+	// ':' to focus CLI from any non-search, non-CLI panel
+	cliActivateViews := []string{"subscriptions", "resourcegroups", "resources", "main"}
+	for _, view := range cliActivateViews {
+		if err := gui.g.SetKeybinding(view, ':', gocui.ModNone, gui.focusCLI); err != nil {
+			return err
+		}
+	}
+
+	// CLI input - Enter to execute
+	if err := gui.g.SetKeybinding("cli_input", gocui.KeyEnter, gocui.ModNone, gui.executeCLI); err != nil {
+		return err
+	}
+	// CLI input - Escape to leave CLI
+	if err := gui.g.SetKeybinding("cli_input", gocui.KeyEsc, gocui.ModNone, gui.unfocusCLI); err != nil {
+		return err
+	}
+	// CLI input - Arrow up/down for history
+	if err := gui.g.SetKeybinding("cli_input", gocui.KeyArrowUp, gocui.ModNone, gui.cliHistoryUp); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("cli_input", gocui.KeyArrowDown, gocui.ModNone, gui.cliHistoryDown); err != nil {
+		return err
+	}
+	// CLI input - Ctrl+C to quit
+	if err := gui.g.SetKeybinding("cli_input", gocui.KeyCtrlC, gocui.ModNone, gui.quit); err != nil {
+		return err
+	}
+	// CLI output - mouse wheel scrolling
+	if err := gui.g.SetKeybinding("cli_output", gocui.MouseWheelUp, gocui.ModNone, gui.scrollCLIUp); err != nil {
+		return err
+	}
+	if err := gui.g.SetKeybinding("cli_output", gocui.MouseWheelDown, gocui.ModNone, gui.scrollCLIDown); err != nil {
+		return err
+	}
+	utils.Log("setupKeybindings: CLI keybindings set")
 
 	utils.Log("setupKeybindings: All keybindings set successfully")
 	return nil
@@ -1296,6 +1433,101 @@ func (gui *Gui) clearFilter(g *gocui.Gui, v *gocui.View) error {
 	return nil
 }
 
+// clearFilterOrGoBack clears the filter if active, otherwise navigates back in hierarchy
+func (gui *Gui) clearFilterOrGoBack(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	activePanel := gui.activePanel
+	showingVersion := gui.showingVersion
+	gui.mu.RUnlock()
+
+	if showingVersion {
+		gui.clearVersionDisplay()
+		return nil
+	}
+
+	// If filtering, clear the filter first
+	switch activePanel {
+	case "resourcegroups":
+		if gui.rgList.IsFiltering() {
+			gui.rgList.ClearFilter()
+			gui.refreshResourceGroupsPanel()
+			gui.refreshMainPanel()
+			gui.updateStatus()
+			return nil
+		}
+	case "resources":
+		if gui.resList.IsFiltering() {
+			gui.resList.ClearFilter()
+			gui.refreshResourcesPanel()
+			gui.refreshMainPanel()
+			gui.updateStatus()
+			return nil
+		}
+	}
+
+	// No filter active, go back
+	return gui.goBack(g, v)
+}
+
+// goBack navigates back up the hierarchy:
+// main → resources → resourcegroups → subscriptions
+func (gui *Gui) goBack(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	currentPanel := gui.activePanel
+	gui.mu.RUnlock()
+
+	var targetView string
+	switch currentPanel {
+	case "main":
+		targetView = "resources"
+	case "resources":
+		targetView = "resourcegroups"
+	case "resourcegroups":
+		targetView = "subscriptions"
+	default:
+		return nil
+	}
+
+	utils.Log("goBack: navigating from %s to %s", currentPanel, targetView)
+
+	if _, err := gui.g.SetCurrentView(targetView); err != nil {
+		utils.Log("goBack: ERROR setting current view: %v", err)
+		return err
+	}
+
+	gui.mu.Lock()
+	gui.activePanel = targetView
+	gui.mu.Unlock()
+
+	gui.updatePanelTitles()
+	gui.updateStatus()
+
+	utils.Log("goBack: navigated successfully to %s", targetView)
+	return nil
+}
+
+// onMainPanelClearSearchOrGoBack clears the main panel search if active, otherwise goes back
+func (gui *Gui) onMainPanelClearSearchOrGoBack(g *gocui.Gui, v *gocui.View) error {
+	gui.mu.RLock()
+	showingVersion := gui.showingVersion
+	gui.mu.RUnlock()
+
+	if showingVersion {
+		gui.clearVersionDisplay()
+		return nil
+	}
+
+	if gui.mainPanelSearch != nil && gui.mainPanelSearch.IsActive() {
+		utils.Log("onMainPanelClearSearchOrGoBack: Clearing main panel search")
+		gui.clearMainPanelSearch()
+		gui.updateStatus()
+		return nil
+	}
+
+	// No search active, go back to resources panel
+	return gui.goBack(g, v)
+}
+
 // updateSubscriptionSelectionFromFiltered updates selection based on filtered results
 func (gui *Gui) updateSubscriptionSelectionFromFiltered() {
 	if gui.subscriptionsView == nil {
@@ -1915,6 +2147,8 @@ func (gui *Gui) switchPanel(g *gocui.Gui, v *gocui.View) error {
 	case "resources":
 		nextView = "main"
 	case "main":
+		nextView = "cli_input"
+	case "cli_input":
 		nextView = "subscriptions"
 	default:
 		nextView = "subscriptions"
@@ -1929,6 +2163,7 @@ func (gui *Gui) switchPanel(g *gocui.Gui, v *gocui.View) error {
 
 	gui.mu.Lock()
 	gui.activePanel = nextView
+	gui.cliActive = (nextView == "cli_input")
 	gui.mu.Unlock()
 
 	// Update visual indicators
@@ -1947,6 +2182,8 @@ func (gui *Gui) switchPanelReverse(g *gocui.Gui, v *gocui.View) error {
 	var nextView string
 	switch currentPanel {
 	case "subscriptions":
+		nextView = "cli_input"
+	case "cli_input":
 		nextView = "main"
 	case "main":
 		nextView = "resources"
@@ -1967,6 +2204,7 @@ func (gui *Gui) switchPanelReverse(g *gocui.Gui, v *gocui.View) error {
 
 	gui.mu.Lock()
 	gui.activePanel = nextView
+	gui.cliActive = (nextView == "cli_input")
 	gui.mu.Unlock()
 
 	// Update visual indicators
@@ -1991,6 +2229,10 @@ func (gui *Gui) onPanelClick(g *gocui.Gui, v *gocui.View) error {
 	switch viewName {
 	case "subscriptions", "resourcegroups", "resources":
 		// These are the focusable list panels
+	case "cli_input", "cli_output":
+		// CLI panels - focus the input
+		panelName = "cli_input"
+		viewName = "cli_input"
 	default:
 		// Not a focusable panel (main is handled separately via onMainViewClick)
 		return nil
@@ -2004,6 +2246,7 @@ func (gui *Gui) onPanelClick(g *gocui.Gui, v *gocui.View) error {
 
 	gui.mu.Lock()
 	gui.activePanel = panelName
+	gui.cliActive = (panelName == "cli_input")
 	gui.mu.Unlock()
 
 	// Update visual indicators
@@ -2161,6 +2404,22 @@ func (gui *Gui) updatePanelTitles() {
 			gui.mainView.FrameColor = gocui.ColorGreen
 		} else {
 			gui.mainView.FrameColor = gocui.ColorWhite
+		}
+	}
+
+	// Update CLI panel frame colors
+	if gui.cliOutputView != nil {
+		if activePanel == "cli_input" {
+			gui.cliOutputView.FrameColor = gocui.ColorGreen
+		} else {
+			gui.cliOutputView.FrameColor = gocui.ColorWhite
+		}
+	}
+	if gui.cliInputView != nil {
+		if activePanel == "cli_input" {
+			gui.cliInputView.FrameColor = gocui.ColorGreen
+		} else {
+			gui.cliInputView.FrameColor = gocui.ColorWhite
 		}
 	}
 }
@@ -2928,17 +3187,17 @@ func (gui *Gui) updateStatus() {
 		}
 	case "resourcegroups":
 		if gui.rgList.IsFiltering() {
-			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load Resources | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: Load Resources | h/←: Back | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
 				gui.rgList.GetFilterText(), rgShowing, rgTotal)
 		} else {
-			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load Resources | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgTotal)
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: Load Resources | h/←: Back | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | RGs: %d", rgTotal)
 		}
 	case "resources":
 		if gui.resList.IsFiltering() {
-			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: View Details | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
+			status = fmt.Sprintf("Filter: \"%s\" (%d/%d) | Esc: Clear | Enter: View Details | h/←: Back | c: Copy | o: Open | Tab: Switch | r: Refresh | q: Quit",
 				gui.resList.GetFilterText(), resShowing, resTotal)
 		} else {
-			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: View Details | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resTotal)
+			status = fmt.Sprintf("↑↓: Navigate | /: Search | Enter: View Details | h/←: Back | c: Copy | o: Open | Tab: Switch | []: Tabs | r: Refresh | q: Quit | Resources: %d", resTotal)
 		}
 	case "main":
 		if gui.mainPanelSearch != nil && gui.mainPanelSearch.IsActive() {
@@ -2958,10 +3217,12 @@ func (gui *Gui) updateStatus() {
 					current, total, gui.mainPanelSearch.GetSearchText())
 			}
 		} else {
-			status = fmt.Sprintf("↑/↓ or j/k: Scroll | PgUp/PgDn: Page | /: Search | c: Copy | o: Open | Tab: Back to List | []: Tabs | r: Refresh | q: Quit")
+			status = fmt.Sprintf("↑/↓ or j/k: Scroll | PgUp/PgDn: Page | /: Search | h/←: Back | c: Copy | o: Open | Tab: Back to List | []: Tabs | r: Refresh | q: Quit")
 		}
+	case "cli_input":
+		status = "Type query + Enter: Ask Copilot | ↑↓: History | Esc: Back | Tab: Switch | Ctrl+C: Quit"
 	default:
-		status = fmt.Sprintf("↑↓: Navigate | Tab: Switch | r: Refresh | q: Quit")
+		status = fmt.Sprintf("↑↓: Navigate | Tab: Switch | :: CLI | r: Refresh | q: Quit")
 	}
 	fmt.Fprint(gui.statusView, status)
 }
@@ -3004,6 +3265,17 @@ func (gui *Gui) loadSubscriptions() {
 			gui.subscriptions = subs
 			if len(subs) > 0 && gui.selectedSub == nil {
 				gui.selectedSub = subs[0]
+				// Auto-select default subscription from config if specified
+				if gui.appConfig != nil && gui.appConfig.DefaultSubscription != "" {
+					target := strings.ToLower(gui.appConfig.DefaultSubscription)
+					for _, s := range subs {
+						if strings.ToLower(s.Name) == target || strings.ToLower(s.ID) == target {
+							gui.selectedSub = s
+							utils.Log("loadSubscriptions: Auto-selected default subscription %q", s.Name)
+							break
+						}
+					}
+				}
 			}
 			gui.mu.Unlock()
 
